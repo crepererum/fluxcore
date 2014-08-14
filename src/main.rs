@@ -3,14 +3,18 @@
 // required for plugin stuff
 extern crate serialize;
 
+#[phase(plugin)] extern crate cfor;
 extern crate cgmath;
 extern crate csv;
 #[phase(plugin)] extern crate docopt_macros;
 extern crate docopt;
+extern crate freetype;
 extern crate gl;
 extern crate glfw;
+extern crate graphics;
 extern crate hgl;
 extern crate native;
+extern crate opengl_graphics;
 
 use std::collections::TreeSet;
 use std::path::Path;

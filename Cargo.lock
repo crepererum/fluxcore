@@ -2,14 +2,23 @@
 name = "fluxcore"
 version = "0.0.1"
 dependencies = [
+ "cfor 0.1.0 (git+https://github.com/huonw/cfor.git#84cf472d8ffc5a256dee52e2de93a8955340026e)",
  "cgmath 0.0.1 (git+https://github.com/bjz/cgmath-rs.git#4a45bf3b53955a15fdd6ebc13f4c57741d6ad15a)",
  "csv 0.1.0 (git+https://github.com/BurntSushi/rust-csv.git#9b600ba0740aa85e7d1aaaa7dedbaf91c7a7f922)",
  "docopt 0.6.0 (git+https://github.com/docopt/docopt.rs.git#fc7ba2f1a5a351f7874257d880223d2ff5c75d36)",
  "docopt_macros 0.6.0 (git+https://github.com/docopt/docopt.rs.git#fc7ba2f1a5a351f7874257d880223d2ff5c75d36)",
+ "freetype-rs 0.0.0 (git+https://github.com/PistonDevelopers/freetype-rs.git#6ecf47969c6001817e960ddf9dfe605308022a5b)",
  "gl 0.0.1 (git+https://github.com/bjz/gl-rs.git#1e5015c213472db00b98145d4dff9d2be9ed6502)",
  "glfw 0.0.1 (git+https://github.com/bjz/glfw-rs.git#e67b8c343fca0180fade23bf3f98413be8d2fecd)",
+ "graphics 0.0.0 (git+https://github.com/PistonDevelopers/rust-graphics.git#4d4c07d3aa8ae445fc180b30e057c4d00faa3c9f)",
  "hgl 0.0.1 (git+https://github.com/cmr/hgl-rs.git#fff296885c8acb1a3e8581f7afd30bcd1d0cd48d)",
+ "opengl_graphics 0.0.0 (git+https://github.com/PistonDevelopers/opengl_graphics.git#bdcf4ce2b4f292b74dc3a223c0ba7f626862777b)",
 ]
+
+[[package]]
+name = "cfor"
+version = "0.1.0"
+source = "git+https://github.com/huonw/cfor.git#84cf472d8ffc5a256dee52e2de93a8955340026e"
 
 [[package]]
 name = "cgmath"
@@ -40,6 +49,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "freetype-rs"
+version = "0.0.0"
+source = "git+https://github.com/PistonDevelopers/freetype-rs.git#6ecf47969c6001817e960ddf9dfe605308022a5b"
+
+[[package]]
 name = "gl"
 version = "0.0.1"
 source = "git+https://github.com/bjz/gl-rs.git#1e5015c213472db00b98145d4dff9d2be9ed6502"
@@ -66,6 +80,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphics"
+version = "0.0.0"
+source = "git+https://github.com/PistonDevelopers/rust-graphics.git#4d4c07d3aa8ae445fc180b30e057c4d00faa3c9f"
+dependencies = [
+ "vecmath 0.0.0 (git+https://github.com/PistonDevelopers/vecmath#b56e2f23e04f2c4674647463c1fea276fec842c3)",
+]
+
+[[package]]
 name = "hgl"
 version = "0.0.1"
 source = "git+https://github.com/cmr/hgl-rs.git#fff296885c8acb1a3e8581f7afd30bcd1d0cd48d"
@@ -73,6 +95,11 @@ dependencies = [
  "gl 0.0.1 (git+https://github.com/bjz/gl-rs.git#1e5015c213472db00b98145d4dff9d2be9ed6502)",
  "glfw 0.0.1 (git+https://github.com/bjz/glfw-rs.git#e67b8c343fca0180fade23bf3f98413be8d2fecd)",
 ]
+
+[[package]]
+name = "image"
+version = "0.0.0"
+source = "git+https://github.com/PistonDevelopers/rust-image#1fa785249a87370e23a3cebee04cf2e548761fd4"
 
 [[package]]
 name = "khronos_api"
@@ -85,6 +112,16 @@ version = "0.1.0"
 source = "git+https://github.com/bjz/glfw-rs.git#e67b8c343fca0180fade23bf3f98413be8d2fecd"
 
 [[package]]
+name = "opengl_graphics"
+version = "0.0.0"
+source = "git+https://github.com/PistonDevelopers/opengl_graphics.git#bdcf4ce2b4f292b74dc3a223c0ba7f626862777b"
+dependencies = [
+ "gl 0.0.1 (git+https://github.com/bjz/gl-rs.git#1e5015c213472db00b98145d4dff9d2be9ed6502)",
+ "graphics 0.0.0 (git+https://github.com/PistonDevelopers/rust-graphics.git#4d4c07d3aa8ae445fc180b30e057c4d00faa3c9f)",
+ "image 0.0.0 (git+https://github.com/PistonDevelopers/rust-image#1fa785249a87370e23a3cebee04cf2e548761fd4)",
+]
+
+[[package]]
 name = "rust-xml"
 version = "0.1.0"
 source = "git+https://github.com/netvl/rust-xml#a0874f1f685e8ba7235855c54997295cb0a4b68a"
@@ -93,4 +130,9 @@ source = "git+https://github.com/netvl/rust-xml#a0874f1f685e8ba7235855c54997295c
 name = "semver"
 version = "0.0.1"
 source = "git+https://github.com/rust-lang/semver#c78b40d7fdf8acd99b503e6ce394fbcf9eb8982f"
+
+[[package]]
+name = "vecmath"
+version = "0.0.0"
+source = "git+https://github.com/PistonDevelopers/vecmath#b56e2f23e04f2c4674647463c1fea276fec842c3"
 

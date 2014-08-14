@@ -2,11 +2,16 @@ use cgmath;
 use cgmath::array::FixedArray;
 use cgmath::matrix::Matrix;
 use data;
+use freetype;
 use gl;
 use glfw;
 use glfw::Context;
+use graphics;
+use graphics::{AddLine, AddRoundBorder, AddColor, AddImage, Draw, RelativeTransform2d};
 use hgl;
+use opengl_graphics;
 use std::comm;
+use std::collections;
 use std::mem;
 
 static VERTEX_SHADER: &'static str = "
@@ -60,6 +65,8 @@ void main() {
 }";
 
 static MARGIN: f32 = 50f32;
+static TICK_DISTANCE: i32 = 60i32;
+static FONT_SIZE: u32 = 16u32;
 
 fn range_vec(vec: &Vec<f32>) -> (f32, f32) {
     let min = vec.tail().iter().fold(vec[0] + 0.0, |a, &b| a.min(b));
@@ -67,10 +74,49 @@ fn range_vec(vec: &Vec<f32>) -> (f32, f32) {
     (min, max)
 }
 
+fn nice_num(x: f32, round: bool) -> f32 {
+    let exp = x.log10().floor() as i32;
+    let f = x / 10f32.powi(exp);
+
+    let nf = if round {
+        if f < 1.5f32 {
+            1f32
+        } else if f < 3f32 {
+            2f32
+        } else if f < 7f32 {
+            5f32
+        } else {
+            10f32
+        }
+    } else {
+        if f < 1f32 {
+            1f32
+        } else if f < 2f32 {
+            2f32
+        } else if f < 5f32 {
+            5f32
+        } else {
+            10f32
+        }
+    };
+
+    nf * 10f32.powi(exp)
+}
+
+fn std_scale(renderLength: i32) -> f32 {
+    1f32 - 2f32 * MARGIN / renderLength as f32
+}
+
 enum ActiveTransform {
     TransformMove,
     TransformScale,
     TransformNone,
+}
+
+struct Character {
+    glyph: freetype::Glyph,
+    bitmap_glyph: freetype::BitmapGlyph,
+    texture: opengl_graphics::Texture,
 }
 
 struct Dimension {
@@ -80,25 +126,57 @@ struct Dimension {
     vbo: hgl::buffer::Vbo,
     min: f32,
     max: f32,
+    name: String,
 }
 
 impl Dimension {
-    fn new(renderLength: i32, data: &Vec<f32>) -> Dimension {
+    fn new(renderLength: i32, table: &data::Table, name: &String) -> Dimension {
+        let data = table.get(name).unwrap();
         let (min, max) = range_vec(data);
         let vbo = hgl::Vbo::from_data(data.as_slice(), hgl::StaticDraw);
         Dimension{
             renderLength: renderLength,
             d: 0f32,
-            s: (1f32 - 2f32 * MARGIN / renderLength as f32) * 0.9f32,
+            s: std_scale(renderLength),
             vbo: vbo,
             min: min,
             max: max,
+            name: name.clone()
         }
     }
 
     fn reset(&mut self) {
         self.d = 0f32;
-        self.s = (1f32 - 2f32 * MARGIN / self.renderLength as f32) * 0.9f32;
+        self.s = std_scale(self.renderLength);
+    }
+
+    fn calc_axis_markers(&self, pixelsPerTick: i32) -> (i32, f32, f32, Vec<f32>) {
+        // precalc projection
+        let minVar = (self.min - self.d / std_scale(self.renderLength) - (self.max + self.min) / 2f32) / self.s * std_scale(self.renderLength) + (self.max + self.min) / 2f32;
+        let maxVar = (self.max - self.d / std_scale(self.renderLength) - (self.max + self.min) / 2f32) / self.s * std_scale(self.renderLength) + (self.max + self.min) / 2f32;
+
+        // calc ticks, borders, steps
+        let ntick = ((self.renderLength as f32 - 2f32 * MARGIN) / pixelsPerTick as f32) as i32;
+        let range = nice_num(maxVar - minVar, false);
+        let d = nice_num(range / (ntick - 1) as f32, true);
+        let graphMin = (minVar / d).floor() * d;
+        let graphMax = (maxVar / d).ceil() * d;
+        let nfrac = [0i32, -d.log10().floor() as i32].iter().max().unwrap().clone();
+
+        // generate markers
+        let mut markers: Vec<f32> = Vec::new();
+        cfor!{let mut m = graphMin; m < graphMax + 0.5f32 * d; (m += d) {
+            let marker = if m < minVar {
+                minVar
+            } else if m > maxVar {
+                maxVar
+            } else {
+                m
+            };
+            markers.push(marker);
+        }}
+
+        (nfrac, minVar, maxVar, markers)
     }
 }
 
@@ -123,7 +201,12 @@ struct Renderer {
     projection: cgmath::matrix::Matrix4<f32>,
     ulocation: UniformLocation,
     vao: hgl::vao::Vao,
-    size: gl::types::GLsizei
+    program: hgl::program::Program,
+    size: gl::types::GLsizei,
+    characterBuffer: collections::hashmap::HashMap<char, Character>,
+    freetype: freetype::Library,
+    fontface: freetype::Face,
+    gl2d: opengl_graphics::Gl,
 }
 
 impl Renderer {
@@ -140,9 +223,6 @@ impl Renderer {
         gl::load_with(|p| glfw.get_proc_address(p));
 
         gl::Viewport(0, 0, width, height);
-        gl::Enable(gl::VERTEX_PROGRAM_POINT_SIZE);
-        gl::Enable(gl::BLEND);
-        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
         let vao = hgl::Vao::new();
         vao.bind();
@@ -161,11 +241,11 @@ impl Renderer {
         program.bind_frag(0, "out_color");
         program.bind();
 
-        let dimx = Dimension::new(width, table.get(column_x).unwrap());
+        let dimx = Dimension::new(width, &table, column_x);
         vao.enable_attrib(&program, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimx.vbo.bind();
 
-        let dimy = Dimension::new(height, table.get(column_y).unwrap());
+        let dimy = Dimension::new(height, &table, column_y);
         vao.enable_attrib(&program, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimy.vbo.bind();
 
@@ -174,6 +254,10 @@ impl Renderer {
             dimy.min, dimy.max,
             0f32, 1f32
         );
+
+        let freetype = freetype::Library::init().unwrap();
+        let fontface = freetype.new_face("Arial.ttf", 0).unwrap();
+        fontface.set_pixel_sizes(0, FONT_SIZE).unwrap();
 
         Renderer {
             glfw: glfw,
@@ -188,7 +272,140 @@ impl Renderer {
             projection: projection,
             ulocation: ulocation,
             vao: vao,
+            program: program,
             size: table.len() as i32,
+            characterBuffer: collections::hashmap::HashMap::new(),
+            freetype: freetype,
+            fontface: fontface,
+            gl2d: opengl_graphics::Gl::new(),
+        }
+    }
+
+    fn load_character(&mut self, ch: char) {
+        self.fontface.load_char(ch as u64, freetype::face::Default).unwrap();
+        let glyph = self.fontface.glyph().get_glyph().unwrap();
+        let bitmap_glyph = glyph.to_bitmap(freetype::render_mode::Normal, None).unwrap();
+        let bitmap = bitmap_glyph.bitmap();
+        let texture = opengl_graphics::Texture::from_memory_alpha(bitmap.buffer(), bitmap.width() as u32, bitmap.rows() as u32).unwrap();
+
+        self.characterBuffer.insert(ch, Character {
+            glyph: glyph,
+            bitmap_glyph: bitmap_glyph,
+            texture: texture,
+        });
+    }
+
+    fn render_text(&mut self, c: &graphics::Context, text: &String, draw: bool) -> (i32, i32) {
+        let mut x = 0;
+        let mut y = 0;
+
+        for ch in text.as_slice().chars() {
+            if !self.characterBuffer.contains_key(&ch) {
+                self.load_character(ch);
+            }
+
+            let character = self.characterBuffer.get(&ch);
+
+            if draw {
+                c.trans((x + character.bitmap_glyph.left()) as f64, (y - character.bitmap_glyph.top()) as f64)
+                    .image(&character.texture)
+                    .rgb(1.0, 0.0, 0.0)
+                    .draw(&mut self.gl2d);
+            }
+
+            // A 16.16 vector that gives the glyph's advance width.
+            x += (character.glyph.advance().x >> 16) as i32;
+            y += (character.glyph.advance().y >> 16) as i32;
+        }
+
+        (x, y)
+    }
+
+    fn render_text_left(&mut self, c: &graphics::Context, text: &String) {
+        self.render_text(c, text, true);
+    }
+
+    fn render_text_right(&mut self, c: &graphics::Context, text: &String) {
+        let (width, _height) = self.render_text(c, text, false);
+        self.render_text(&c.trans(-width as f64, 0f64), text, true);
+    }
+
+    fn render_text_center(&mut self, c: &graphics::Context, text: &String) {
+        let (width, _height) = self.render_text(c, text, false);
+        self.render_text(&c.trans(-width as f64 / 2f64, 0f64), text, true);
+    }
+
+    fn draw_x_axis(&mut self, c: &graphics::Context) {
+        c.line(MARGIN as f64, MARGIN as f64, self.dimx.renderLength as f64 - MARGIN as f64, MARGIN as f64)
+            .round_border_radius(1.0)
+            .rgb(1.0, 0.0, 0.0)
+            .draw(&mut self.gl2d);
+        c.line(MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64, self.dimx.renderLength as f64 - MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64)
+            .round_border_radius(1.0)
+            .rgb(1.0, 0.0, 0.0)
+            .draw(&mut self.gl2d);
+
+        let text_c1 = c.trans(self.dimx.renderLength as f64 / 2f64, 24f64);
+        let text_c2 = c.trans(self.dimx.renderLength as f64 / 2f64, self.dimy.renderLength as f64 - 24f64 + FONT_SIZE as f64);
+        let text = self.dimx.name.clone();
+        self.render_text_center(&text_c1, &text);
+        self.render_text_center(&text_c2, &text);
+
+        let (_nfrac, mmin, mmax, marksers) = self.dimx.calc_axis_markers(TICK_DISTANCE);
+        for m in marksers.iter() {
+            let pos = MARGIN + (m - mmin) / (mmax - mmin) * (self.dimx.renderLength as f32 - 2f32 * MARGIN);
+            let marker_text = format!("{}", m);
+            let marker_c1 = c.trans(pos as f64, MARGIN as f64 - 10f64);
+            let marker_c2 = c.trans(pos as f64, self.dimy.renderLength as f64 - MARGIN as f64 + 10f64 + FONT_SIZE as f64);
+
+            self.render_text_center(&marker_c1, &marker_text);
+            self.render_text_center(&marker_c2, &marker_text);
+
+            c.line(pos as f64, MARGIN as f64 - 8f64, pos as f64, MARGIN as f64)
+                .round_border_radius(1.0)
+                .rgb(1.0, 0.0, 0.0)
+                .draw(&mut self.gl2d);
+            c.line(pos as f64, self.dimy.renderLength as f64 - MARGIN as f64 + 8f64, pos as f64, self.dimy.renderLength as f64 - MARGIN as f64)
+                .round_border_radius(1.0)
+                .rgb(1.0, 0.0, 0.0)
+                .draw(&mut self.gl2d);
+        }
+    }
+
+    fn draw_y_axis(&mut self, c: &graphics::Context) {
+        c.line(MARGIN as f64, MARGIN as f64, MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64)
+            .round_border_radius(1.0)
+            .rgb(1.0, 0.0, 0.0)
+            .draw(&mut self.gl2d);
+        c.line(self.dimx.renderLength as f64 - MARGIN as f64, MARGIN as f64, self.dimx.renderLength as f64 - MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64)
+            .round_border_radius(1.0)
+            .rgb(1.0, 0.0, 0.0)
+            .draw(&mut self.gl2d);
+
+        let text_c1 = c.trans(24f64, self.dimy.renderLength as f64 / 2f64);
+        let text_c2 = c.trans(self.dimx.renderLength as f64 - 24f64, self.dimy.renderLength as f64 / 2f64);
+        let text = self.dimy.name.clone();
+        self.render_text_center(&text_c1, &text);
+        self.render_text_center(&text_c2, &text);
+
+        let (_nfrac, mmin, mmax, marksers) = self.dimy.calc_axis_markers(TICK_DISTANCE);
+        for m in marksers.iter() {
+            let pos = MARGIN + (1.0 - (m - mmin) / (mmax - mmin)) * (self.dimy.renderLength as f32 - 2f32 * MARGIN);
+            let marker_text = format!("{}", m);
+            let marker_c1 = c.trans(MARGIN as f64 - 10f64, pos as f64 + FONT_SIZE as f64 / 2f64);
+            let marker_c2 = c.trans(self.dimx.renderLength as f64 - MARGIN as f64 + 10f64, pos as f64 + FONT_SIZE as f64 / 2f64);
+
+            self.render_text_right(&marker_c1, &marker_text);
+            self.render_text_left(&marker_c2, &marker_text);
+
+            c.line(MARGIN as f64 - 8f64, pos as f64, MARGIN as f64, pos as f64)
+                .round_border_radius(1.0)
+                .rgb(1.0, 0.0, 0.0)
+                .draw(&mut self.gl2d);
+            c.line(self.dimx.renderLength as f64 - MARGIN as f64 + 8f64, pos as f64, self.dimx.renderLength as f64 - MARGIN as f64, pos as f64)
+                .round_border_radius(1.0)
+                .rgb(1.0, 0.0, 0.0)
+                .draw(&mut self.gl2d);
         }
     }
 
@@ -270,6 +487,12 @@ impl Renderer {
 
             gl::ClearColor(0.1, 0.1, 0.1, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
+            gl::Enable(gl::VERTEX_PROGRAM_POINT_SIZE);
+            gl::Enable(gl::BLEND);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+
+            self.vao.bind();
+            self.program.bind();
 
             let translation = cgmath::matrix::Matrix4::<f32>::from_translation(
                 &cgmath::vector::Vector3::<f32>::new(
@@ -295,6 +518,14 @@ impl Renderer {
             gl::Uniform1f(self.ulocation.margin, MARGIN);
 
             self.vao.draw_array(hgl::Points, 0, self.size);
+
+            gl::BindVertexArray(0);
+            gl::UseProgram(0);
+            self.gl2d.clear_shader();
+            let c = graphics::Context::abs(self.dimx.renderLength as f64, self.dimy.renderLength as f64);
+
+            self.draw_x_axis(&c);
+            self.draw_y_axis(&c);
 
             self.window.swap_buffers();
         }
