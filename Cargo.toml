@@ -1,5 +1,5 @@
 [package]
-name = "fluxcore2"
+name = "fluxcore"
 version = "0.0.1"
 authors = ["Marco Neumann <marco@crepererum.net>"]
 
@@ -8,6 +8,12 @@ git = "https://github.com/bjz/cgmath-rs.git"
 
 [dependencies.csv]
 git = "https://github.com/BurntSushi/rust-csv.git"
+
+[dependencies.docopt]
+git = "https://github.com/docopt/docopt.rs.git"
+
+[dependencies.docopt_macros]
+git = "https://github.com/docopt/docopt.rs.git"
 
 [dependencies.gl]
 git = "https://github.com/bjz/gl-rs.git"

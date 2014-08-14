@@ -1,5 +1,12 @@
+#![feature(phase)]
+
+// required for plugin stuff
+extern crate serialize;
+
 extern crate cgmath;
 extern crate csv;
+#[phase(plugin)] extern crate docopt_macros;
+extern crate docopt;
 extern crate gl;
 extern crate glfw;
 extern crate hgl;
@@ -16,10 +23,25 @@ fn start(argc: int, argv: *const *const u8) -> int {
     native::start(argc, argv, main)
 }
 
+docopt!(Args,"
+Usage: fluxcore [options] FILE X Y
+       fluxcore (--help)
+
+Options:
+    --separator SEPARATOR   Sets seperator.
+    -h, --help              Print help.
+")
+
 fn main() {
-    let path = Path::new("./input.csv");
+    let args: Args = docopt::FlagParser::parse().unwrap_or_else(|e| e.exit());
+
+    let path = Path::new(args.arg_FILE);
     let mut reader = csv::Decoder::from_file(&path);
     reader.has_headers(true);
+    if !args.flag_separator.is_empty() {
+        let mut s = args.flag_separator.clone();
+        reader.separator(s.shift_char().unwrap());
+    }
 
     let mut columns = TreeSet::new();
     columns.extend(reader.headers().unwrap().move_iter());
@@ -29,5 +51,5 @@ fn main() {
         table.push(row);
     }
 
-    render::render(table, &"x".to_string(), &"y".to_string());
+    render::render(table, &args.arg_X, &args.arg_Y);
 }
