@@ -1,0 +1,70 @@
+[root]
+name = "fluxcore2"
+version = "0.0.1"
+dependencies = [
+ "cgmath 0.0.1 (git+https://github.com/bjz/cgmath-rs.git#4a45bf3b53955a15fdd6ebc13f4c57741d6ad15a)",
+ "csv 0.1.0 (git+https://github.com/BurntSushi/rust-csv.git#9b600ba0740aa85e7d1aaaa7dedbaf91c7a7f922)",
+ "gl 0.0.1 (git+https://github.com/bjz/gl-rs#eaef1949be16d68049c3502c7c5f539ffac74dbd)",
+ "glfw 0.0.1 (git+https://github.com/bjz/glfw-rs.git#b98b8abdbd6877e511d798a09a64cc442b474ea0)",
+ "hgl 0.0.1 (git+https://github.com/cmr/hgl-rs.git#fff296885c8acb1a3e8581f7afd30bcd1d0cd48d)",
+]
+
+[[package]]
+name = "cgmath"
+version = "0.0.1"
+source = "git+https://github.com/bjz/cgmath-rs.git#4a45bf3b53955a15fdd6ebc13f4c57741d6ad15a"
+
+[[package]]
+name = "csv"
+version = "0.1.0"
+source = "git+https://github.com/BurntSushi/rust-csv.git#9b600ba0740aa85e7d1aaaa7dedbaf91c7a7f922"
+
+[[package]]
+name = "gl"
+version = "0.0.1"
+source = "git+https://github.com/bjz/gl-rs#eaef1949be16d68049c3502c7c5f539ffac74dbd"
+dependencies = [
+ "gl_generator 0.0.1 (git+https://github.com/bjz/gl-rs#eaef1949be16d68049c3502c7c5f539ffac74dbd)",
+]
+
+[[package]]
+name = "gl_generator"
+version = "0.0.1"
+source = "git+https://github.com/bjz/gl-rs#eaef1949be16d68049c3502c7c5f539ffac74dbd"
+dependencies = [
+ "rust-xml 0.1.0 (git+https://github.com/netvl/rust-xml#74d774629eee9f2eef41bbdb44ffc02535085375)",
+]
+
+[[package]]
+name = "glfw"
+version = "0.0.1"
+source = "git+https://github.com/bjz/glfw-rs.git#b98b8abdbd6877e511d798a09a64cc442b474ea0"
+dependencies = [
+ "link_glfw 0.1.0 (git+https://github.com/bjz/glfw-rs.git#b98b8abdbd6877e511d798a09a64cc442b474ea0)",
+ "semver 0.0.1 (git+https://github.com/rust-lang/semver#e17191f51d543529a6f07e6731802b77977fcef8)",
+]
+
+[[package]]
+name = "hgl"
+version = "0.0.1"
+source = "git+https://github.com/cmr/hgl-rs.git#fff296885c8acb1a3e8581f7afd30bcd1d0cd48d"
+dependencies = [
+ "gl 0.0.1 (git+https://github.com/bjz/gl-rs#eaef1949be16d68049c3502c7c5f539ffac74dbd)",
+ "glfw 0.0.1 (git+https://github.com/bjz/glfw-rs.git#b98b8abdbd6877e511d798a09a64cc442b474ea0)",
+]
+
+[[package]]
+name = "link_glfw"
+version = "0.1.0"
+source = "git+https://github.com/bjz/glfw-rs.git#b98b8abdbd6877e511d798a09a64cc442b474ea0"
+
+[[package]]
+name = "rust-xml"
+version = "0.1.0"
+source = "git+https://github.com/netvl/rust-xml#74d774629eee9f2eef41bbdb44ffc02535085375"
+
+[[package]]
+name = "semver"
+version = "0.0.1"
+source = "git+https://github.com/rust-lang/semver#e17191f51d543529a6f07e6731802b77977fcef8"
+

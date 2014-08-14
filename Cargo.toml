@@ -1,0 +1,19 @@
+[package]
+name = "fluxcore2"
+version = "0.0.1"
+authors = ["Marco Neumann <marco@crepererum.net>"]
+
+[dependencies.cgmath]
+git = "https://github.com/bjz/cgmath-rs.git"
+
+[dependencies.csv]
+git = "https://github.com/BurntSushi/rust-csv.git"
+
+[dependencies.gl]
+git = "https://github.com/bjz/gl-rs.git"
+
+[dependencies.glfw]
+git = "https://github.com/bjz/glfw-rs.git"
+
+[dependencies.hgl]
+git = "https://github.com/cmr/hgl-rs.git"
