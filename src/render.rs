@@ -422,8 +422,8 @@ impl Renderer {
                         let xdiff = (xpos as f32 - self.mouseX) / self.dimx.renderLength as f32;
                         let ydiff = (self.mouseY - ypos as f32) / self.dimy.renderLength as f32;
 
-                        self.dimx.d += xdiff;
-                        self.dimy.d += ydiff;
+                        self.dimx.d += xdiff * (self.dimx.max - self.dimx.min);
+                        self.dimy.d += ydiff * (self.dimy.max - self.dimy.min);
                     },
                     TransformScale => {
                         let x1 = self.mouseX - self.dimx.renderLength as f32 / 2.0f32;
@@ -496,8 +496,8 @@ impl Renderer {
 
             let translation = cgmath::matrix::Matrix4::<f32>::from_translation(
                 &cgmath::vector::Vector3::<f32>::new(
-                    self.dimx.d,
-                    self.dimy.d,
+                    self.dimx.d / (self.dimx.max - self.dimx.min) * 2.0,
+                    self.dimy.d / (self.dimy.max - self.dimy.min) * 2.0,
                     0f32
                 )
             );
@@ -507,7 +507,7 @@ impl Renderer {
                 0.0f32, 0.0f32, 1.0f32, 0.0f32,
                 0.0f32, 0.0f32, 0.0f32, 1.0f32
             );
-            let finalTransformation = self.projection.mul_m(&translation).mul_m(&scale);
+            let finalTransformation = translation.mul_m(&scale).mul_m(&self.projection);
             unsafe {
                 gl::UniformMatrix4fv(self.ulocation.transformation, 1, gl::FALSE, mem::transmute(&finalTransformation.as_fixed()[0][0]));
             }
