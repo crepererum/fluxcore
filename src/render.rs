@@ -19,6 +19,7 @@ static VERTEX_SHADER: &'static str = "
 
 uniform float pointScale;
 uniform mat4 transformation;
+uniform float alphaScale;
 
 in float position_x;
 in float position_y;
@@ -28,7 +29,7 @@ out vec2 Position;
 void main() {
     gl_PointSize = pointScale;
     gl_Position = transformation * vec4(position_x, position_y, 0.0, 1.0);
-    Color = vec4(1.0, 1.0, 1.0, 1.0);
+    Color = vec4(1.0, 1.0, 1.0, alphaScale);
     Position = vec2(gl_Position.x, gl_Position.y);
 }";
 
@@ -183,6 +184,7 @@ struct UniformLocation {
     pointScale: gl::types::GLint,
     transformation: gl::types::GLint,
     margin: gl::types::GLint,
+    alphaScale: gl::types::GLint,
 }
 
 struct Renderer {
@@ -195,6 +197,7 @@ struct Renderer {
     mouseX: f32,
     mouseY: f32,
     pointScale: f32,
+    alphaScale: f32,
     projection: cgmath::matrix::Matrix4<f32>,
     ulocation: UniformLocation,
     vao: hgl::vao::Vao,
@@ -232,6 +235,7 @@ impl Renderer {
             pointScale: program.uniform("pointScale"),
             transformation: program.uniform("transformation"),
             margin: program.uniform("margin"),
+            alphaScale: program.uniform("alphaScale"),
         };
         program.bind_frag(0, "out_color");
         program.bind();
@@ -260,6 +264,7 @@ impl Renderer {
             mouseX: 0f32,
             mouseY: 0f32,
             pointScale: 4f32,
+            alphaScale: 1f32,
             projection: projection,
             ulocation: ulocation,
             vao: vao,
@@ -398,6 +403,8 @@ impl Renderer {
                     (glfw::KeyEscape, glfw::Press) => self.window.set_should_close(true),
                     (glfw::KeyQ, glfw::Press) => self.pointScale *= 1.5f32,
                     (glfw::KeyW, glfw::Press) => self.pointScale = 1f32.max(self.pointScale / 1.5f32),
+                    (glfw::KeyA, glfw::Press) => self.alphaScale /= 1.5f32,
+                    (glfw::KeyS, glfw::Press) => self.alphaScale = 1f32.min(self.alphaScale * 1.5f32),
                     (glfw::KeyR, glfw::Press) => {
                         self.pointScale = 4f32;
                         self.dimx.reset();
@@ -447,6 +454,7 @@ impl Renderer {
             gl::Uniform1f(self.ulocation.width, self.dimx.renderLength as f32);
             gl::Uniform1f(self.ulocation.height, self.dimy.renderLength as f32);
             gl::Uniform1f(self.ulocation.pointScale, self.pointScale);
+            gl::Uniform1f(self.ulocation.alphaScale, self.alphaScale);
             gl::Uniform1f(self.ulocation.margin, MARGIN);
 
             self.vao.draw_array(hgl::Points, 0, self.size);
