@@ -48,5 +48,9 @@ impl Table {
     pub fn name<'a>(&'a self) -> &'a String {
         &self.name
     }
+
+    pub fn columns<'a>(&'a self) -> &'a TreeSet<String> {
+        &self.colnames
+    }
 }
 
