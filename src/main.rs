@@ -35,7 +35,7 @@ fn start(argc: int, argv: *const *const u8) -> int {
 }
 
 docopt!(Args,"
-Usage: fluxcore [options] FILE X Y
+Usage: fluxcore [options] FILE [X Y]
        fluxcore (--help)
 
 Options:
@@ -82,5 +82,15 @@ fn main() {
     println!("\rParsed {} lines", n);
 
     println!("Render!");
-    render::render(table, &args.arg_X, &args.arg_Y);
+    let dimx = if args.arg_X.is_empty() {
+        table.columns().iter().next().unwrap().clone()
+    } else {
+        args.arg_X
+    };
+    let dimy = if args.arg_Y.is_empty() {
+        table.columns().iter().skip(1).next().unwrap().clone()
+    } else {
+        args.arg_Y
+    };
+    render::render(table, &dimx, &dimy);
 }
