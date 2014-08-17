@@ -261,7 +261,7 @@ impl Renderer {
             vao: vao,
             program: program,
             size: table.len() as i32,
-            textdrawer: textdrawer::TextDrawer::new("Arial.ttf".to_string(), FONT_SIZE),
+            textdrawer: textdrawer::TextDrawer::new("res/DejaVuSans.ttf".to_string(), FONT_SIZE),
             gl2d: opengl_graphics::Gl::new(),
         }
     }
