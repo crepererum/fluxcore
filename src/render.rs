@@ -401,8 +401,8 @@ impl Renderer {
             glfw::KeyEvent(key, _scancode, action, _mods) => {
                 match (key, action) {
                     (glfw::KeyEscape, glfw::Press) => self.window.set_should_close(true),
-                    (glfw::KeyQ, glfw::Press) => self.pointScale *= 1.5f32,
-                    (glfw::KeyW, glfw::Press) => self.pointScale = 1f32.max(self.pointScale / 1.5f32),
+                    (glfw::KeyW, glfw::Press) => self.pointScale *= 1.5f32,
+                    (glfw::KeyQ, glfw::Press) => self.pointScale = 1f32.max(self.pointScale / 1.5f32),
                     (glfw::KeyA, glfw::Press) => self.alphaScale /= 1.5f32,
                     (glfw::KeyS, glfw::Press) => self.alphaScale = 1f32.min(self.alphaScale * 1.5f32),
                     (glfw::KeyR, glfw::Press) => {
