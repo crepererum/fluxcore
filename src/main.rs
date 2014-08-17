@@ -1,3 +1,4 @@
+#![feature(default_type_params)]
 #![feature(phase)]
 
 // required for plugin stuff
@@ -21,6 +22,7 @@ use std::path::Path;
 
 mod data;
 mod render;
+mod textdrawer;
 
 #[start]
 fn start(argc: int, argv: *const *const u8) -> int {

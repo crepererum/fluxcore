@@ -2,17 +2,16 @@ use cgmath;
 use cgmath::array::FixedArray;
 use cgmath::matrix::Matrix;
 use data;
-use freetype;
 use gl;
 use glfw;
 use glfw::Context;
 use graphics;
-use graphics::{AddLine, AddRoundBorder, AddColor, AddImage, Draw, RelativeTransform2d};
+use graphics::{AddLine, AddRoundBorder, AddColor, Draw, RelativeTransform2d};
 use hgl;
 use opengl_graphics;
 use std::comm;
-use std::collections;
 use std::mem;
+use textdrawer;
 
 static VERTEX_SHADER: &'static str = "
 #version 140
@@ -113,12 +112,6 @@ enum ActiveTransform {
     TransformNone,
 }
 
-struct Character {
-    glyph: freetype::Glyph,
-    bitmap_glyph: freetype::BitmapGlyph,
-    texture: opengl_graphics::Texture,
-}
-
 struct Dimension {
     renderLength: i32,
     d: f32,
@@ -203,9 +196,7 @@ struct Renderer {
     vao: hgl::vao::Vao,
     program: hgl::program::Program,
     size: gl::types::GLsizei,
-    characterBuffer: collections::hashmap::HashMap<char, Character>,
-    freetype: freetype::Library,
-    fontface: freetype::Face,
+    textdrawer: textdrawer::TextDrawer,
     gl2d: opengl_graphics::Gl,
 }
 
@@ -255,10 +246,6 @@ impl Renderer {
             0f32, 1f32
         );
 
-        let freetype = freetype::Library::init().unwrap();
-        let fontface = freetype.new_face("Arial.ttf", 0).unwrap();
-        fontface.set_pixel_sizes(0, FONT_SIZE).unwrap();
-
         Renderer {
             glfw: glfw,
             window: window,
@@ -274,137 +261,73 @@ impl Renderer {
             vao: vao,
             program: program,
             size: table.len() as i32,
-            characterBuffer: collections::hashmap::HashMap::new(),
-            freetype: freetype,
-            fontface: fontface,
+            textdrawer: textdrawer::TextDrawer::new("Arial.ttf".to_string(), FONT_SIZE),
             gl2d: opengl_graphics::Gl::new(),
         }
     }
 
-    fn load_character(&mut self, ch: char) {
-        self.fontface.load_char(ch as u64, freetype::face::Default).unwrap();
-        let glyph = self.fontface.glyph().get_glyph().unwrap();
-        let bitmap_glyph = glyph.to_bitmap(freetype::render_mode::Normal, None).unwrap();
-        let bitmap = bitmap_glyph.bitmap();
-        let texture = opengl_graphics::Texture::from_memory_alpha(bitmap.buffer(), bitmap.width() as u32, bitmap.rows() as u32).unwrap();
+    fn draw_x_axis(&mut self, c: &graphics::Context<(),[f32, ..4]>) {
+        let line = c.line(MARGIN as f64, MARGIN as f64, self.dimx.renderLength as f64 - MARGIN as f64, MARGIN as f64)
+            .round_border_radius(1.0);
 
-        self.characterBuffer.insert(ch, Character {
-            glyph: glyph,
-            bitmap_glyph: bitmap_glyph,
-            texture: texture,
-        });
-    }
 
-    fn render_text(&mut self, c: &graphics::Context, text: &String, draw: bool) -> (i32, i32) {
-        let mut x = 0;
-        let mut y = 0;
+        line.draw(&mut self.gl2d);
+        line.trans(0f64, self.dimy.renderLength as f64 - 2f64 * MARGIN as f64);
 
-        for ch in text.as_slice().chars() {
-            if !self.characterBuffer.contains_key(&ch) {
-                self.load_character(ch);
-            }
-
-            let character = self.characterBuffer.get(&ch);
-
-            if draw {
-                c.trans((x + character.bitmap_glyph.left()) as f64, (y - character.bitmap_glyph.top()) as f64)
-                    .image(&character.texture)
-                    .rgb(1.0, 0.0, 0.0)
-                    .draw(&mut self.gl2d);
-            }
-
-            // A 16.16 vector that gives the glyph's advance width.
-            x += (character.glyph.advance().x >> 16) as i32;
-            y += (character.glyph.advance().y >> 16) as i32;
-        }
-
-        (x, y)
-    }
-
-    fn render_text_left(&mut self, c: &graphics::Context, text: &String) {
-        self.render_text(c, text, true);
-    }
-
-    fn render_text_right(&mut self, c: &graphics::Context, text: &String) {
-        let (width, _height) = self.render_text(c, text, false);
-        self.render_text(&c.trans(-width as f64, 0f64), text, true);
-    }
-
-    fn render_text_center(&mut self, c: &graphics::Context, text: &String) {
-        let (width, _height) = self.render_text(c, text, false);
-        self.render_text(&c.trans(-width as f64 / 2f64, 0f64), text, true);
-    }
-
-    fn draw_x_axis(&mut self, c: &graphics::Context) {
-        c.line(MARGIN as f64, MARGIN as f64, self.dimx.renderLength as f64 - MARGIN as f64, MARGIN as f64)
-            .round_border_radius(1.0)
-            .rgb(1.0, 0.0, 0.0)
-            .draw(&mut self.gl2d);
-        c.line(MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64, self.dimx.renderLength as f64 - MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64)
-            .round_border_radius(1.0)
-            .rgb(1.0, 0.0, 0.0)
-            .draw(&mut self.gl2d);
-
-        let text_c1 = c.trans(self.dimx.renderLength as f64 / 2f64, 24f64);
-        let text_c2 = c.trans(self.dimx.renderLength as f64 / 2f64, self.dimy.renderLength as f64 - 24f64 + FONT_SIZE as f64);
+        let text_c1 = c.trans((self.dimx.renderLength as f64 / 2f64).floor(), 24f64);
+        let text_c2 = c.trans((self.dimx.renderLength as f64 / 2f64).floor(), self.dimy.renderLength as f64 - 24f64);
         let text = self.dimx.name.clone();
-        self.render_text_center(&text_c1, &text);
-        self.render_text_center(&text_c2, &text);
+        self.textdrawer.render(&text_c1, &mut self.gl2d, &text, textdrawer::Center, textdrawer::Top);
+        self.textdrawer.render(&text_c2, &mut self.gl2d, &text, textdrawer::Center, textdrawer::Bottom);
 
         let (_nfrac, mmin, mmax, marksers) = self.dimx.calc_axis_markers(TICK_DISTANCE);
         for m in marksers.iter() {
-            let pos = MARGIN + (m - mmin) / (mmax - mmin) * (self.dimx.renderLength as f32 - 2f32 * MARGIN);
+            let pos = (MARGIN + (m - mmin) / (mmax - mmin) * (self.dimx.renderLength as f32 - 2f32 * MARGIN)).floor();
             let marker_text = format!("{}", m);
             let marker_c1 = c.trans(pos as f64, MARGIN as f64 - 10f64);
-            let marker_c2 = c.trans(pos as f64, self.dimy.renderLength as f64 - MARGIN as f64 + 10f64 + FONT_SIZE as f64);
+            let marker_c2 = c.trans(pos as f64, self.dimy.renderLength as f64 - MARGIN as f64 + 10f64);
 
-            self.render_text_center(&marker_c1, &marker_text);
-            self.render_text_center(&marker_c2, &marker_text);
+            self.textdrawer.render(&marker_c1, &mut self.gl2d, &marker_text, textdrawer::Center, textdrawer::Top);
+            self.textdrawer.render(&marker_c2, &mut self.gl2d, &marker_text, textdrawer::Center, textdrawer::Bottom);
 
             c.line(pos as f64, MARGIN as f64 - 8f64, pos as f64, MARGIN as f64)
                 .round_border_radius(1.0)
-                .rgb(1.0, 0.0, 0.0)
                 .draw(&mut self.gl2d);
             c.line(pos as f64, self.dimy.renderLength as f64 - MARGIN as f64 + 8f64, pos as f64, self.dimy.renderLength as f64 - MARGIN as f64)
                 .round_border_radius(1.0)
-                .rgb(1.0, 0.0, 0.0)
                 .draw(&mut self.gl2d);
         }
     }
 
-    fn draw_y_axis(&mut self, c: &graphics::Context) {
-        c.line(MARGIN as f64, MARGIN as f64, MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64)
-            .round_border_radius(1.0)
-            .rgb(1.0, 0.0, 0.0)
-            .draw(&mut self.gl2d);
-        c.line(self.dimx.renderLength as f64 - MARGIN as f64, MARGIN as f64, self.dimx.renderLength as f64 - MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64)
-            .round_border_radius(1.0)
-            .rgb(1.0, 0.0, 0.0)
+    fn draw_y_axis(&mut self, c: &graphics::Context<(),[f32, ..4]>) {
+        let line = c.line(MARGIN as f64, MARGIN as f64, MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64)
+            .round_border_radius(1.0);
+
+        line.draw(&mut self.gl2d);
+        line.trans(self.dimx.renderLength as f64 - 2f64 * MARGIN as f64, 0f64)
             .draw(&mut self.gl2d);
 
-        let text_c1 = c.trans(24f64, self.dimy.renderLength as f64 / 2f64);
-        let text_c2 = c.trans(self.dimx.renderLength as f64 - 24f64, self.dimy.renderLength as f64 / 2f64);
+        let text_c1 = c.trans(24f64, (self.dimy.renderLength as f64 / 2f64).floor());
+        let text_c2 = c.trans(self.dimx.renderLength as f64 - 24f64, (self.dimy.renderLength as f64 / 2f64).floor());
         let text = self.dimy.name.clone();
-        self.render_text_center(&text_c1, &text);
-        self.render_text_center(&text_c2, &text);
+        self.textdrawer.render(&text_c1, &mut self.gl2d, &text, textdrawer::Center, textdrawer::Middle);
+        self.textdrawer.render(&text_c2, &mut self.gl2d, &text, textdrawer::Center, textdrawer::Middle);
 
         let (_nfrac, mmin, mmax, marksers) = self.dimy.calc_axis_markers(TICK_DISTANCE);
         for m in marksers.iter() {
-            let pos = MARGIN + (1.0 - (m - mmin) / (mmax - mmin)) * (self.dimy.renderLength as f32 - 2f32 * MARGIN);
+            let pos = (MARGIN + (1.0 - (m - mmin) / (mmax - mmin)) * (self.dimy.renderLength as f32 - 2f32 * MARGIN)).floor();
             let marker_text = format!("{}", m);
-            let marker_c1 = c.trans(MARGIN as f64 - 10f64, pos as f64 + FONT_SIZE as f64 / 2f64);
-            let marker_c2 = c.trans(self.dimx.renderLength as f64 - MARGIN as f64 + 10f64, pos as f64 + FONT_SIZE as f64 / 2f64);
+            let marker_c1 = c.trans(MARGIN as f64 - 10f64, pos as f64);
+            let marker_c2 = c.trans(self.dimx.renderLength as f64 - MARGIN as f64 + 10f64, pos as f64);
 
-            self.render_text_right(&marker_c1, &marker_text);
-            self.render_text_left(&marker_c2, &marker_text);
+            self.textdrawer.render(&marker_c1, &mut self.gl2d, &marker_text, textdrawer::Right, textdrawer::Middle);
+            self.textdrawer.render(&marker_c2, &mut self.gl2d, &marker_text, textdrawer::Left, textdrawer::Middle);
 
             c.line(MARGIN as f64 - 8f64, pos as f64, MARGIN as f64, pos as f64)
                 .round_border_radius(1.0)
-                .rgb(1.0, 0.0, 0.0)
                 .draw(&mut self.gl2d);
             c.line(self.dimx.renderLength as f64 - MARGIN as f64 + 8f64, pos as f64, self.dimx.renderLength as f64 - MARGIN as f64, pos as f64)
                 .round_border_radius(1.0)
-                .rgb(1.0, 0.0, 0.0)
                 .draw(&mut self.gl2d);
         }
     }
@@ -522,7 +445,8 @@ impl Renderer {
             gl::BindVertexArray(0);
             gl::UseProgram(0);
             self.gl2d.clear_shader();
-            let c = graphics::Context::abs(self.dimx.renderLength as f64, self.dimy.renderLength as f64);
+            let c = graphics::Context::abs(self.dimx.renderLength as f64, self.dimy.renderLength as f64)
+                .rgb(1.0, 0.0, 0.0);
 
             self.draw_x_axis(&c);
             self.draw_y_axis(&c);
