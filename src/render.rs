@@ -178,6 +178,25 @@ impl Dimension {
     }
 }
 
+fn calc_projection(dimx: &Dimension, dimy: &Dimension) -> cgmath::matrix::Matrix4<f32> {
+    let (xmin, xmax) = if dimx.min.is_nan() || dimx.max.is_nan() || dimx.min == dimx.max {
+        (-1f32, 1f32)
+    } else {
+        (dimx.min, dimx.max)
+    };
+    let (ymin, ymax) = if dimy.min.is_nan() || dimy.max.is_nan() || dimy.min == dimy.max {
+        (-1f32, 1f32)
+    } else {
+        (dimy.min, dimy.max)
+    };
+
+    cgmath::projection::ortho(
+        xmin, xmax,
+        ymin, ymax,
+        0f32, 1f32
+    )
+}
+
 struct UniformLocation {
     width: gl::types::GLint,
     height: gl::types::GLint,
@@ -188,6 +207,7 @@ struct UniformLocation {
 }
 
 struct Renderer {
+    table: data::Table,
     glfw: glfw::Glfw,
     window: glfw::Window,
     events: comm::Receiver<(f64, glfw::WindowEvent)>,
@@ -202,7 +222,6 @@ struct Renderer {
     ulocation: UniformLocation,
     vao: hgl::vao::Vao,
     program: hgl::program::Program,
-    size: gl::types::GLsizei,
     textdrawer: textdrawer::TextDrawer,
     gl2d: opengl_graphics::Gl,
 }
@@ -248,11 +267,7 @@ impl Renderer {
         vao.enable_attrib(&program, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimy.vbo.bind();
 
-        let projection = cgmath::projection::ortho(
-            dimx.min, dimx.max,
-            dimy.min, dimy.max,
-            0f32, 1f32
-        );
+        let projection = calc_projection(&dimx, &dimy);
 
         Renderer {
             glfw: glfw,
@@ -269,7 +284,7 @@ impl Renderer {
             ulocation: ulocation,
             vao: vao,
             program: program,
-            size: table.len() as i32,
+            table: table,
             textdrawer: textdrawer::TextDrawer::new("res/DejaVuSansCondensed-Bold.ttf".to_string(), FONT_SIZE),
             gl2d: opengl_graphics::Gl::new(),
         }
@@ -410,6 +425,58 @@ impl Renderer {
                         self.dimx.reset();
                         self.dimy.reset();
                     },
+                    (glfw::KeyRight, glfw::Press) => {
+                        {
+                            let next = match self.table.columns().iter().skip_while(|&s| s != &self.dimx.name).skip(1).next() {
+                                Some(element) => element,
+                                None => self.table.columns().iter().next().unwrap()
+                            };
+                            let dim = Dimension::new(self.dimx.renderLength, &self.table, next);
+                            self.vao.enable_attrib(&self.program, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            dim.vbo.bind();
+                            self.dimx = dim;
+                        }
+                        self.projection = calc_projection(&self.dimx, &self.dimy);
+                    },
+                    (glfw::KeyLeft, glfw::Press) => {
+                        {
+                            let next = match self.table.columns().rev_iter().skip_while(|&s| s != &self.dimx.name).skip(1).next() {
+                                Some(element) => element,
+                                None => self.table.columns().rev_iter().next().unwrap()
+                            };
+                            let dim = Dimension::new(self.dimx.renderLength, &self.table, next);
+                            self.vao.enable_attrib(&self.program, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            dim.vbo.bind();
+                            self.dimx = dim;
+                        }
+                        self.projection = calc_projection(&self.dimx, &self.dimy);
+                    },
+                    (glfw::KeyDown, glfw::Press) => {
+                        {
+                            let next = match self.table.columns().iter().skip_while(|&s| s != &self.dimy.name).skip(1).next() {
+                                Some(element) => element,
+                                None => self.table.columns().iter().next().unwrap()
+                            };
+                            let dim = Dimension::new(self.dimy.renderLength, &self.table, next);
+                            self.vao.enable_attrib(&self.program, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            dim.vbo.bind();
+                            self.dimy = dim;
+                        }
+                        self.projection = calc_projection(&self.dimx, &self.dimy);
+                    },
+                    (glfw::KeyUp, glfw::Press) => {
+                        {
+                            let next = match self.table.columns().rev_iter().skip_while(|&s| s != &self.dimy.name).skip(1).next() {
+                                Some(element) => element,
+                                None => self.table.columns().rev_iter().next().unwrap()
+                            };
+                            let dim = Dimension::new(self.dimy.renderLength, &self.table, next);
+                            self.vao.enable_attrib(&self.program, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            dim.vbo.bind();
+                            self.dimy = dim;
+                        }
+                        self.projection = calc_projection(&self.dimx, &self.dimy);
+                    },
                     _ => ()
                 }
             }
@@ -457,7 +524,7 @@ impl Renderer {
             gl::Uniform1f(self.ulocation.alphaScale, self.alphaScale);
             gl::Uniform1f(self.ulocation.margin, MARGIN);
 
-            self.vao.draw_array(hgl::Points, 0, self.size);
+            self.vao.draw_array(hgl::Points, 0, self.table.len() as i32);
 
             gl::BindVertexArray(0);
             gl::UseProgram(0);
