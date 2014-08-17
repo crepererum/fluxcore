@@ -65,6 +65,18 @@ void main() {
     out_color = vec4(Color.r, Color.g, Color.b, Color.a * alpha);
 }";
 
+static HELP_TEXT: &'static str = "
+== HELP ==
+H: Toggle help
+R: Reset view
+Q/W: Decrease/Increase point size
+A/S: Decrease/Increase alpha
+Up/Down: Change Y dimension
+Left/Right: Change X dimension
+Mouse 1 + Drag: Move
+Mouse 2 + Drag: Scale
+";
+
 static MARGIN: f32 = 75f32;
 static TICK_DISTANCE: i32 = 60i32;
 static FONT_SIZE: u32 = 16u32;
@@ -224,6 +236,7 @@ struct Renderer {
     program: hgl::program::Program,
     textdrawer: textdrawer::TextDrawer,
     gl2d: opengl_graphics::Gl,
+    showHelp: bool,
 }
 
 impl Renderer {
@@ -287,6 +300,7 @@ impl Renderer {
             table: table,
             textdrawer: textdrawer::TextDrawer::new("res/DejaVuSansCondensed-Bold.ttf".to_string(), FONT_SIZE),
             gl2d: opengl_graphics::Gl::new(),
+            showHelp: false,
         }
     }
 
@@ -420,8 +434,10 @@ impl Renderer {
                     (glfw::KeyQ, glfw::Press) => self.pointScale = 1f32.max(self.pointScale / 1.5f32),
                     (glfw::KeyA, glfw::Press) => self.alphaScale /= 1.5f32,
                     (glfw::KeyS, glfw::Press) => self.alphaScale = 1f32.min(self.alphaScale * 1.5f32),
+                    (glfw::KeyH, glfw::Press) => self.showHelp = !self.showHelp,
                     (glfw::KeyR, glfw::Press) => {
                         self.pointScale = 4f32;
+                        self.alphaScale = 1f32;
                         self.dimx.reset();
                         self.dimy.reset();
                     },
@@ -532,6 +548,10 @@ impl Renderer {
             let c = graphics::Context::abs(self.dimx.renderLength as f64, self.dimy.renderLength as f64)
                 .rgb(0.23, 0.80, 0.62);
 
+            if self.showHelp {
+                let help_c = c.trans((self.dimx.renderLength as f64 / 2f64).floor(), (self.dimy.renderLength as f64 / 2f64).floor());
+                self.textdrawer.render(&help_c, &mut self.gl2d, &HELP_TEXT.to_string(), textdrawer::Center, textdrawer::Middle);
+            }
             self.draw_x_axis(&c);
             self.draw_y_axis(&c);
 

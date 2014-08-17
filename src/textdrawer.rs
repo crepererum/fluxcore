@@ -1,6 +1,6 @@
 use freetype;
 use graphics;
-use graphics::{AddImage, Draw, ImageSize, RelativeTransform2d};
+use graphics::{AddImage, Draw, RelativeTransform2d};
 use opengl_graphics;
 use std::collections;
 
@@ -67,40 +67,52 @@ impl TextDrawer {
     fn render_raw(&mut self, c: &graphics::Context<(),[f32, ..4]>, gl2d: &mut opengl_graphics::Gl, text: &String, draw: bool) -> (i32, i32) {
         let mut x = 0;
         let mut y = 0;
+        let mut width = 0i32;
         let mut height = 0i32;
         let mut last: Option<u32> = None;
 
         for ch in text.as_slice().chars() {
-            if !self.characterBuffer.contains_key(&ch) {
-                self.load_character(ch);
-            }
-
-            let character = self.characterBuffer.get(&ch);
-
-            match last {
-                Some(idx) => {
-                    let kerning = self.fontface.get_kerning(idx, character.index, freetype::face::KerningDefault).unwrap();
-                    x += (kerning.x >> 16) as i32;
-                    y += (kerning.y >> 16) as i32;
+            match ch {
+                '\n' => {
+                    width = vec![width, x].iter().max().unwrap().clone();
+                    x = 0;
+                    y += self.size as i32;
+                    last = None;
                 },
-                None => ()
+                _ => {
+                    if !self.characterBuffer.contains_key(&ch) {
+                        self.load_character(ch);
+                    }
+
+                    let character = self.characterBuffer.get(&ch);
+
+                    match last {
+                        Some(idx) => {
+                            let kerning = self.fontface.get_kerning(idx, character.index, freetype::face::KerningDefault).unwrap();
+                            x += (kerning.x >> 16) as i32;
+                            y += (kerning.y >> 16) as i32;
+                        },
+                        None => ()
+                    }
+
+                    if draw {
+                        c.trans((x + character.bitmap_glyph.left()) as f64, (y - character.bitmap_glyph.top()) as f64)
+                            .image(&character.texture)
+                            .draw(gl2d);
+                    }
+
+                    // A 16.16 vector that gives the glyph's advance width.
+                    x += (character.glyph.advance().x >> 16) as i32;
+                    y += (character.glyph.advance().y >> 16) as i32;
+
+                    height = vec![height, character.height as i32].iter().max().unwrap().clone();
+                    last = Some(character.index);
+                }
             }
-
-            if draw {
-                c.trans((x + character.bitmap_glyph.left()) as f64, (y - character.bitmap_glyph.top()) as f64)
-                    .image(&character.texture)
-                    .draw(gl2d);
-            }
-
-            // A 16.16 vector that gives the glyph's advance width.
-            x += (character.glyph.advance().x >> 16) as i32;
-            y += (character.glyph.advance().y >> 16) as i32;
-
-            height = vec![height, character.height as i32].iter().max().unwrap().clone();
-            last = Some(character.index);
         }
+        width = vec![width, x].iter().max().unwrap().clone();
 
-        (x, height)
+        (width, y - height)
     }
 
     pub fn render(&mut self, c: &graphics::Context<(),[f32, ..4]>, gl2d: &mut opengl_graphics::Gl, text: &String, hor: AnchorHor, vert: AnchorVert) {
@@ -112,8 +124,8 @@ impl TextDrawer {
         };
         let dy = match vert {
             Top => 0f64,
-            Middle => (height as f64 / 2f64).floor(),
-            Bottom => height as f64
+            Middle => -(height as f64 / 2f64).floor(),
+            Bottom => -height as f64
         };
         self.render_raw(&c.trans(dx, dy), gl2d, text, true);
     }
