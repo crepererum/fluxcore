@@ -234,7 +234,7 @@ impl Renderer {
         let glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
         glfw.window_hint(glfw::ContextVersion(3, 1));
 
-        let (window, events) = glfw.create_window(width as u32, height as u32, format!("fluxcore2 - {}", table.name()).as_slice(), glfw::Windowed).unwrap();
+        let (window, events) = glfw.create_window(width as u32, height as u32, format!("fluxcore - {}", table.name()).as_slice(), glfw::Windowed).unwrap();
         window.set_all_polling(true);
         window.make_current();
         gl::load_with(|p| glfw.get_proc_address(p));
