@@ -272,7 +272,8 @@ impl Renderer {
 
 
         line.draw(&mut self.gl2d);
-        line.trans(0f64, self.dimy.renderLength as f64 - 2f64 * MARGIN as f64);
+        line.trans(0f64, self.dimy.renderLength as f64 - 2f64 * MARGIN as f64)
+            .draw(&mut self.gl2d);
 
         let text_c1 = c.trans((self.dimx.renderLength as f64 / 2f64).floor(), 24f64);
         let text_c2 = c.trans((self.dimx.renderLength as f64 / 2f64).floor(), self.dimy.renderLength as f64 - 24f64);
