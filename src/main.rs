@@ -18,7 +18,10 @@ extern crate native;
 extern crate opengl_graphics;
 
 use std::collections::TreeSet;
+use std::iter::FromIterator;
+use std::num::Float;
 use std::path::Path;
+use std::vec::Vec;
 
 mod data;
 mod render;
@@ -53,8 +56,14 @@ fn main() {
     columns.extend(reader.headers().unwrap().move_iter());
 
     let mut table = data::Table::new(path.as_str().unwrap().to_string(), columns);
-    for row in reader.decode_iter::<Vec<f32>>() {
-        table.push(row);
+    for row in reader.decode_iter::<Vec<Option<f32>>>() {
+        let row2: Vec<f32> = FromIterator::from_iter(row.iter().map(|&x| {
+            match x {
+                Some(value) => value,
+                None => Float::nan()
+            }
+        }));
+        table.push(row2);
     }
 
     render::render(table, &args.arg_X, &args.arg_Y);
