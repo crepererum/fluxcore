@@ -77,10 +77,11 @@ Mouse 1 + Drag: Move
 Mouse 2 + Drag: Scale
 ";
 
-static MARGIN: f32 = 75f32;
+static MARGIN: f32 = 100f32;
 static TICK_DISTANCE: i32 = 60i32;
 static FONT_SIZE: u32 = 16u32;
 static LABEL_MARGIN: f64 = 24f64;
+static INFO_MARGIN: f64 = 2f64;
 static TICK_LENGTH: f64 = 6f64;
 static TICK_WIDTH: f64 = 0.5f64;
 
@@ -554,6 +555,8 @@ impl Renderer {
             }
             self.draw_x_axis(&c);
             self.draw_y_axis(&c);
+
+            self.textdrawer.render(&c.trans(self.dimx.renderLength as f64 - INFO_MARGIN, self.dimy.renderLength as f64 - INFO_MARGIN), &mut self.gl2d, &format!("#objects: {}", self.table.len()), textdrawer::Right, textdrawer::Bottom);
 
             self.window.swap_buffers();
         }

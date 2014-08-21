@@ -123,9 +123,9 @@ impl TextDrawer {
             Right => (-width as f64).floor()
         };
         let dy = match vert {
-            Top => 0f64,
+            Bottom => 0f64,
             Middle => -(height as f64 / 2f64).floor(),
-            Bottom => -height as f64
+            Top => -height as f64
         };
         self.render_raw(&c.trans(dx, dy), gl2d, text, true);
     }
