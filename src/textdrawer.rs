@@ -84,7 +84,7 @@ impl TextDrawer {
                         self.load_character(ch);
                     }
 
-                    let character = self.characterBuffer.get(&ch);
+                    let ref character = self.characterBuffer[ch];
 
                     match last {
                         Some(idx) => {

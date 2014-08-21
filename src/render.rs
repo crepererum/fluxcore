@@ -1,6 +1,6 @@
 use cgmath;
-use cgmath::array::FixedArray;
-use cgmath::matrix::Matrix;
+use cgmath::FixedArray;
+use cgmath::Matrix;
 use data;
 use gl;
 use glfw;
@@ -11,7 +11,9 @@ use hgl;
 use opengl_graphics;
 use std::comm;
 use std::f32;
+use std::io;
 use std::mem;
+use std::time;
 use textdrawer;
 
 static VERTEX_SHADER: &'static str = "
@@ -84,6 +86,7 @@ static LABEL_MARGIN: f64 = 24f64;
 static INFO_MARGIN: f64 = 2f64;
 static TICK_LENGTH: f64 = 6f64;
 static TICK_WIDTH: f64 = 0.5f64;
+static PAUSE_MS: i32 = 20;
 
 fn range_vec(vec: &Vec<f32>) -> (f32, f32) {
     let min = vec.tail().iter().fold(vec[0] + 0.0, |a, &b| a.min(b));
@@ -191,7 +194,7 @@ impl Dimension {
     }
 }
 
-fn calc_projection(dimx: &Dimension, dimy: &Dimension) -> cgmath::matrix::Matrix4<f32> {
+fn calc_projection(dimx: &Dimension, dimy: &Dimension) -> cgmath::Matrix4<f32> {
     let (xmin, xmax) = if dimx.min.is_nan() || dimx.max.is_nan() || dimx.min == dimx.max {
         (-1f32, 1f32)
     } else {
@@ -203,7 +206,7 @@ fn calc_projection(dimx: &Dimension, dimy: &Dimension) -> cgmath::matrix::Matrix
         (dimy.min, dimy.max)
     };
 
-    cgmath::projection::ortho(
+    cgmath::ortho(
         xmin, xmax,
         ymin, ymax,
         0f32, 1f32
@@ -231,13 +234,14 @@ struct Renderer {
     mouseY: f32,
     pointScale: f32,
     alphaScale: f32,
-    projection: cgmath::matrix::Matrix4<f32>,
+    projection: cgmath::Matrix4<f32>,
     ulocation: UniformLocation,
     vao: hgl::vao::Vao,
     program: hgl::program::Program,
     textdrawer: textdrawer::TextDrawer,
     gl2d: opengl_graphics::Gl,
     showHelp: bool,
+    changed: bool,
 }
 
 impl Renderer {
@@ -302,6 +306,7 @@ impl Renderer {
             textdrawer: textdrawer::TextDrawer::new("res/DejaVuSansCondensed-Bold.ttf".to_string(), FONT_SIZE),
             gl2d: opengl_graphics::Gl::new(),
             showHelp: false,
+            changed: true,
         }
     }
 
@@ -501,64 +506,74 @@ impl Renderer {
         }
     }
 
+    fn redraw(&mut self) {
+        gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+        gl::Enable(gl::VERTEX_PROGRAM_POINT_SIZE);
+        gl::Enable(gl::BLEND);
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+
+        self.vao.bind();
+        self.program.bind();
+
+        let translation = cgmath::Matrix4::<f32>::from_translation(
+            &cgmath::Vector3::<f32>::new(
+                self.dimx.d / (self.dimx.max - self.dimx.min) * 2.0,
+                self.dimy.d / (self.dimy.max - self.dimy.min) * 2.0,
+                0f32
+            )
+        );
+        let scale = cgmath::Matrix4::<f32>::new(
+            self.dimx.s, 0.0f32, 0.0f32, 0.0f32,
+            0.0f32, self.dimy.s, 0.0f32, 0.0f32,
+            0.0f32, 0.0f32, 1.0f32, 0.0f32,
+            0.0f32, 0.0f32, 0.0f32, 1.0f32
+        );
+        let finalTransformation = translation.mul_m(&scale).mul_m(&self.projection);
+        unsafe {
+            gl::UniformMatrix4fv(self.ulocation.transformation, 1, gl::FALSE, mem::transmute(&finalTransformation.as_fixed()[0][0]));
+        }
+
+        gl::Uniform1f(self.ulocation.width, self.dimx.renderLength as f32);
+        gl::Uniform1f(self.ulocation.height, self.dimy.renderLength as f32);
+        gl::Uniform1f(self.ulocation.pointScale, self.pointScale);
+        gl::Uniform1f(self.ulocation.alphaScale, self.alphaScale);
+        gl::Uniform1f(self.ulocation.margin, MARGIN);
+
+        self.vao.draw_array(hgl::Points, 0, self.table.len() as i32);
+
+        gl::BindVertexArray(0);
+        gl::UseProgram(0);
+        self.gl2d.clear_shader();
+        let c = graphics::Context::abs(self.dimx.renderLength as f64, self.dimy.renderLength as f64)
+            .rgb(0.23, 0.80, 0.62);
+
+        if self.showHelp {
+            let help_c = c.trans((self.dimx.renderLength as f64 / 2f64).floor(), (self.dimy.renderLength as f64 / 2f64).floor());
+            self.textdrawer.render(&help_c, &mut self.gl2d, &HELP_TEXT.to_string(), textdrawer::Center, textdrawer::Middle);
+        }
+        self.draw_x_axis(&c);
+        self.draw_y_axis(&c);
+
+        self.textdrawer.render(&c.trans(self.dimx.renderLength as f64 - INFO_MARGIN, self.dimy.renderLength as f64 - INFO_MARGIN), &mut self.gl2d, &format!("#objects: {}", self.table.len()), textdrawer::Right, textdrawer::Bottom);
+
+        self.window.swap_buffers();
+    }
+
     fn renderloop(&mut self) {
         while !self.window.should_close() {
             self.glfw.poll_events();
             for (_time, event) in glfw::flush_messages(&self.events) {
                 self.handle_event(event);
+                self.changed = true;
             }
 
-            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-            gl::Enable(gl::VERTEX_PROGRAM_POINT_SIZE);
-            gl::Enable(gl::BLEND);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-
-            self.vao.bind();
-            self.program.bind();
-
-            let translation = cgmath::matrix::Matrix4::<f32>::from_translation(
-                &cgmath::vector::Vector3::<f32>::new(
-                    self.dimx.d / (self.dimx.max - self.dimx.min) * 2.0,
-                    self.dimy.d / (self.dimy.max - self.dimy.min) * 2.0,
-                    0f32
-                )
-            );
-            let scale = cgmath::matrix::Matrix4::<f32>::new(
-                self.dimx.s, 0.0f32, 0.0f32, 0.0f32,
-                0.0f32, self.dimy.s, 0.0f32, 0.0f32,
-                0.0f32, 0.0f32, 1.0f32, 0.0f32,
-                0.0f32, 0.0f32, 0.0f32, 1.0f32
-            );
-            let finalTransformation = translation.mul_m(&scale).mul_m(&self.projection);
-            unsafe {
-                gl::UniformMatrix4fv(self.ulocation.transformation, 1, gl::FALSE, mem::transmute(&finalTransformation.as_fixed()[0][0]));
+            if self.changed {
+                self.redraw();
+                self.changed = false;
+            } else {
+                io::timer::sleep(time::duration::Duration::milliseconds(PAUSE_MS));
             }
-
-            gl::Uniform1f(self.ulocation.width, self.dimx.renderLength as f32);
-            gl::Uniform1f(self.ulocation.height, self.dimy.renderLength as f32);
-            gl::Uniform1f(self.ulocation.pointScale, self.pointScale);
-            gl::Uniform1f(self.ulocation.alphaScale, self.alphaScale);
-            gl::Uniform1f(self.ulocation.margin, MARGIN);
-
-            self.vao.draw_array(hgl::Points, 0, self.table.len() as i32);
-
-            gl::BindVertexArray(0);
-            gl::UseProgram(0);
-            self.gl2d.clear_shader();
-            let c = graphics::Context::abs(self.dimx.renderLength as f64, self.dimy.renderLength as f64)
-                .rgb(0.23, 0.80, 0.62);
-
-            if self.showHelp {
-                let help_c = c.trans((self.dimx.renderLength as f64 / 2f64).floor(), (self.dimy.renderLength as f64 / 2f64).floor());
-                self.textdrawer.render(&help_c, &mut self.gl2d, &HELP_TEXT.to_string(), textdrawer::Center, textdrawer::Middle);
-            }
-            self.draw_x_axis(&c);
-            self.draw_y_axis(&c);
-
-            self.textdrawer.render(&c.trans(self.dimx.renderLength as f64 - INFO_MARGIN, self.dimy.renderLength as f64 - INFO_MARGIN), &mut self.gl2d, &format!("#objects: {}", self.table.len()), textdrawer::Right, textdrawer::Bottom);
-
-            self.window.swap_buffers();
         }
     }
 }
