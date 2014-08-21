@@ -25,14 +25,20 @@ uniform float alphaScale;
 
 in float position_x;
 in float position_y;
+in float position_z;
 out vec4 Color;
 out vec2 Position;
 
 void main() {
-    gl_PointSize = pointScale;
-    gl_Position = transformation * vec4(position_x, position_y, 0.0, 1.0);
-    Color = vec4(1.0, 1.0, 1.0, alphaScale);
+    vec4 realpos = transformation * vec4(position_x, position_y, position_z, 1.0);
+    float t = 1.0 / (1.0 + exp(-realpos.z * 5.0));
+    Color = t * vec4(1.0, 0.27, 0.08, alphaScale) + (1.0 - t) * vec4(0.5, 0.5, 0.5, alphaScale);
+
+    vec4 realpos2 = transformation * vec4(position_x, position_y, 0.0, 1.0);
+    gl_Position = vec4(realpos2.x, realpos2.y, 0.0, 1.0);
     Position = vec2(gl_Position.x, gl_Position.y);
+
+    gl_PointSize = pointScale;
 }";
 
 static FRAGMENT_SHADER: &'static str = "
@@ -75,8 +81,11 @@ Q/W: Decrease/Increase point size
 A/S: Decrease/Increase alpha
 Up/Down: Change Y dimension
 Left/Right: Change X dimension
-Mouse 1 + Drag: Move
-Mouse 2 + Drag: Scale
+PageUp/PageDown: Change Z dimension
+Mouse 1 + Drag: Move X+Y
+Mouse 2 + Drag: Scale X+Y
+Mouse Scroll Hor.: Scale Z
+Mouse Scroll Ver.: Move Z
 ";
 
 static MARGIN: f32 = 100f32;
@@ -194,7 +203,7 @@ impl Dimension {
     }
 }
 
-fn calc_projection(dimx: &Dimension, dimy: &Dimension) -> cgmath::Matrix4<f32> {
+fn calc_projection(dimx: &Dimension, dimy: &Dimension, dimz: &Dimension) -> cgmath::Matrix4<f32> {
     let (xmin, xmax) = if dimx.min.is_nan() || dimx.max.is_nan() || dimx.min == dimx.max {
         (-1f32, 1f32)
     } else {
@@ -205,11 +214,16 @@ fn calc_projection(dimx: &Dimension, dimy: &Dimension) -> cgmath::Matrix4<f32> {
     } else {
         (dimy.min, dimy.max)
     };
+    let (zmin, zmax) = if dimz.min.is_nan() || dimz.max.is_nan() || dimz.min == dimz.max {
+        (-1f32, 1f32)
+    } else {
+        (dimz.min, dimz.max)
+    };
 
     cgmath::ortho(
         xmin, xmax,
         ymin, ymax,
-        0f32, 1f32
+        zmin, zmax
     )
 }
 
@@ -229,6 +243,7 @@ struct Renderer {
     events: comm::Receiver<(f64, glfw::WindowEvent)>,
     dimx: Dimension,
     dimy: Dimension,
+    dimz: Dimension,
     activeTransform: ActiveTransform,
     mouseX: f32,
     mouseY: f32,
@@ -245,7 +260,7 @@ struct Renderer {
 }
 
 impl Renderer {
-    fn new(table: data::Table, column_x: &String, column_y: &String) -> Renderer {
+    fn new(table: data::Table, column_x: &String, column_y: &String, column_z: &String) -> Renderer {
         let width = 800i32;
         let height = 600i32;
 
@@ -285,7 +300,11 @@ impl Renderer {
         vao.enable_attrib(&program, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimy.vbo.bind();
 
-        let projection = calc_projection(&dimx, &dimy);
+        let dimz = Dimension::new(100, &table, column_z);
+        vao.enable_attrib(&program, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+        dimz.vbo.bind();
+
+        let projection = calc_projection(&dimx, &dimy, &dimz);
 
         Renderer {
             glfw: glfw,
@@ -293,6 +312,7 @@ impl Renderer {
             events: events,
             dimx: dimx,
             dimy: dimy,
+            dimz: dimz,
             activeTransform: TransformNone,
             mouseX: 0f32,
             mouseY: 0f32,
@@ -433,6 +453,18 @@ impl Renderer {
                     _ => ()
                 }
             },
+            glfw::ScrollEvent(dx, dy) => {
+                if dx > 0.0 {
+                    self.dimz.d += 0.05;
+                } else if dx < 0.0 {
+                    self.dimz.d -= 0.05;
+                }
+                if dy > 0.0 {
+                    self.dimz.s *= 1.05;
+                } else if dy < 0.0 {
+                    self.dimz.s /= 1.05;
+                }
+            }
             glfw::KeyEvent(key, _scancode, action, _mods) => {
                 match (key, action) {
                     (glfw::KeyEscape, glfw::Press) => self.window.set_should_close(true),
@@ -446,6 +478,7 @@ impl Renderer {
                         self.alphaScale = 1f32;
                         self.dimx.reset();
                         self.dimy.reset();
+                        self.dimz.reset();
                     },
                     (glfw::KeyRight, glfw::Press) => {
                         {
@@ -458,7 +491,7 @@ impl Renderer {
                             dim.vbo.bind();
                             self.dimx = dim;
                         }
-                        self.projection = calc_projection(&self.dimx, &self.dimy);
+                        self.projection = calc_projection(&self.dimx, &self.dimy, &self.dimz);
                     },
                     (glfw::KeyLeft, glfw::Press) => {
                         {
@@ -471,7 +504,7 @@ impl Renderer {
                             dim.vbo.bind();
                             self.dimx = dim;
                         }
-                        self.projection = calc_projection(&self.dimx, &self.dimy);
+                        self.projection = calc_projection(&self.dimx, &self.dimy, &self.dimz);
                     },
                     (glfw::KeyDown, glfw::Press) => {
                         {
@@ -484,7 +517,7 @@ impl Renderer {
                             dim.vbo.bind();
                             self.dimy = dim;
                         }
-                        self.projection = calc_projection(&self.dimx, &self.dimy);
+                        self.projection = calc_projection(&self.dimx, &self.dimy, &self.dimz);
                     },
                     (glfw::KeyUp, glfw::Press) => {
                         {
@@ -497,7 +530,33 @@ impl Renderer {
                             dim.vbo.bind();
                             self.dimy = dim;
                         }
-                        self.projection = calc_projection(&self.dimx, &self.dimy);
+                        self.projection = calc_projection(&self.dimx, &self.dimy, &self.dimz);
+                    },
+                    (glfw::KeyPageDown, glfw::Press) => {
+                        {
+                            let next = match self.table.columns().iter().skip_while(|&s| s != &self.dimz.name).skip(1).next() {
+                                Some(element) => element,
+                                None => self.table.columns().iter().next().unwrap()
+                            };
+                            let dim = Dimension::new(self.dimz.renderLength, &self.table, next);
+                            self.vao.enable_attrib(&self.program, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            dim.vbo.bind();
+                            self.dimz = dim;
+                        }
+                        self.projection = calc_projection(&self.dimx, &self.dimy, &self.dimz);
+                    },
+                    (glfw::KeyPageUp, glfw::Press) => {
+                        {
+                            let next = match self.table.columns().rev_iter().skip_while(|&s| s != &self.dimz.name).skip(1).next() {
+                                Some(element) => element,
+                                None => self.table.columns().rev_iter().next().unwrap()
+                            };
+                            let dim = Dimension::new(self.dimz.renderLength, &self.table, next);
+                            self.vao.enable_attrib(&self.program, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            dim.vbo.bind();
+                            self.dimz = dim;
+                        }
+                        self.projection = calc_projection(&self.dimx, &self.dimy, &self.dimz);
                     },
                     _ => ()
                 }
@@ -520,13 +579,13 @@ impl Renderer {
             &cgmath::Vector3::<f32>::new(
                 self.dimx.d / (self.dimx.max - self.dimx.min) * 2.0,
                 self.dimy.d / (self.dimy.max - self.dimy.min) * 2.0,
-                0f32
+                self.dimz.d / (self.dimz.max - self.dimz.min) * 2.0
             )
         );
         let scale = cgmath::Matrix4::<f32>::new(
             self.dimx.s, 0.0f32, 0.0f32, 0.0f32,
             0.0f32, self.dimy.s, 0.0f32, 0.0f32,
-            0.0f32, 0.0f32, 1.0f32, 0.0f32,
+            0.0f32, 0.0f32, self.dimz.s, 0.0f32,
             0.0f32, 0.0f32, 0.0f32, 1.0f32
         );
         let finalTransformation = translation.mul_m(&scale).mul_m(&self.projection);
@@ -556,6 +615,7 @@ impl Renderer {
         self.draw_y_axis(&c);
 
         self.textdrawer.render(&c.trans(self.dimx.renderLength as f64 - INFO_MARGIN, self.dimy.renderLength as f64 - INFO_MARGIN), &mut self.gl2d, &format!("#objects: {}", self.table.len()), textdrawer::Right, textdrawer::Bottom);
+        self.textdrawer.render(&c.trans(INFO_MARGIN, self.dimy.renderLength as f64 - INFO_MARGIN), &mut self.gl2d, &format!("z: {}", self.dimz.name), textdrawer::Left, textdrawer::Bottom);
 
         self.window.swap_buffers();
     }
@@ -578,7 +638,7 @@ impl Renderer {
     }
 }
 
-pub fn render(table: data::Table, column_x: &String, column_y: &String) {
-    let mut renderer = Renderer::new(table, column_x, column_y);
+pub fn render(table: data::Table, column_x: &String, column_y: &String, column_z: &String) {
+    let mut renderer = Renderer::new(table, column_x, column_y, column_z);
     renderer.renderloop();
 }

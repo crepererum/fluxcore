@@ -35,7 +35,7 @@ fn start(argc: int, argv: *const *const u8) -> int {
 }
 
 docopt!(Args,"
-Usage: fluxcore [options] FILE [X Y]
+Usage: fluxcore [options] FILE [X Y Z]
        fluxcore (--help)
 
 Options:
@@ -88,9 +88,20 @@ fn main() {
         args.arg_X
     };
     let dimy = if args.arg_Y.is_empty() {
-        table.columns().iter().skip(1).next().unwrap().clone()
+        match table.columns().iter().skip(1).next() {
+            Some(s) => s,
+            None => &dimx
+        }.clone()
     } else {
         args.arg_Y
     };
-    render::render(table, &dimx, &dimy);
+    let dimz = if args.arg_Z.is_empty() {
+        match table.columns().iter().skip(2).next() {
+            Some(s) => s,
+            None => &dimy
+        }.clone()
+    } else {
+        args.arg_Z
+    };
+    render::render(table, &dimx, &dimy, &dimz);
 }
