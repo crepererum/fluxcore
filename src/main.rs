@@ -1,5 +1,6 @@
 #![feature(default_type_params)]
 #![feature(phase)]
+#![feature(unsafe_destructor)]
 
 // required for plugin stuff
 extern crate serialize;

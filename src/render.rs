@@ -13,15 +13,15 @@ use std::comm;
 use std::f32;
 use std::io;
 use std::mem;
+use std::ptr;
 use std::time;
 use textdrawer;
 
-static VERTEX_SHADER: &'static str = "
+static VERTEX_SHADER_POINTS: &'static str = "
 #version 140
 
 uniform float pointScale;
 uniform mat4 transformation;
-uniform float alphaScale;
 
 in float position_x;
 in float position_y;
@@ -32,7 +32,7 @@ out vec2 Position;
 void main() {
     vec4 realpos = transformation * vec4(position_x, position_y, position_z, 1.0);
     float t = 1.0 / (1.0 + exp(-realpos.z * 5.0));
-    Color = t * vec4(1.0, 0.27, 0.08, alphaScale) + (1.0 - t) * vec4(0.5, 0.5, 0.5, alphaScale);
+    Color = t * vec4(1.0, 0.27, 0.08, 1.0) + (1.0 - t) * vec4(0.5, 0.5, 0.5, 1.0);
 
     vec4 realpos2 = transformation * vec4(position_x, position_y, 0.0, 1.0);
     gl_Position = vec4(realpos2.x, realpos2.y, 0.0, 1.0);
@@ -41,7 +41,7 @@ void main() {
     gl_PointSize = pointScale;
 }";
 
-static FRAGMENT_SHADER: &'static str = "
+static FRAGMENT_SHADER_POINTS: &'static str = "
 #version 140
 
 uniform float pointScale;
@@ -73,6 +73,38 @@ void main() {
     out_color = vec4(Color.r, Color.g, Color.b, Color.a * alpha);
 }";
 
+static VERTEX_SHADER_TEXTURE: &'static str = "
+#version 140
+
+attribute vec2 v_coord;
+uniform sampler2D fbo_texture;
+varying vec2 f_texcoord;
+
+void main(void) {
+    gl_Position = vec4(v_coord, 0.0, 1.0);
+    f_texcoord = (v_coord + 1.0) / 2.0;
+}";
+
+static FRAGMENT_SHADER_TEXTURE: &'static str = "
+#version 140
+
+uniform float count;
+uniform float alpha;
+uniform sampler2D fbo_texture;
+varying vec2 f_texcoord;
+out vec4 out_color;
+
+void main(void) {
+    vec4 tex = texture2D(fbo_texture, f_texcoord);
+    if (tex.a == 0.0) {
+        discard;
+    } else {
+        vec4 full = tex / tex.a;
+        float transp = log(1.0 + tex.a / count) / log(2.0);
+        out_color = vec4(full.r, full.g, full.b, alpha + (1.0 - alpha) * transp);
+    }
+}";
+
 static HELP_TEXT: &'static str = "
 == HELP ==
 H: Toggle help
@@ -87,6 +119,15 @@ Mouse 2 + Drag: Scale X+Y
 Mouse Scroll Hor.: Scale Z
 Mouse Scroll Ver.: Move Z
 ";
+
+static VERTEX_DATA_TEXTURE: [gl::types::GLfloat, ..12] = [
+    -1.0, -1.0,
+    1.0, 1.0,
+    1.0, -1.0,
+    -1.0, -1.0,
+    1.0, -1.0,
+    1.0, 1.0,
+];
 
 static MARGIN: f32 = 100f32;
 static TICK_DISTANCE: i32 = 60i32;
@@ -227,13 +268,18 @@ fn calc_projection(dimx: &Dimension, dimy: &Dimension, dimz: &Dimension) -> cgma
     )
 }
 
-struct UniformLocation {
+struct UniformLocationPoints {
     width: gl::types::GLint,
     height: gl::types::GLint,
     pointScale: gl::types::GLint,
     transformation: gl::types::GLint,
     margin: gl::types::GLint,
-    alphaScale: gl::types::GLint,
+}
+
+struct UniformLocationTexture {
+    count: gl::types::GLint,
+    alpha: gl::types::GLint,
+    fboTexture: gl::types::GLint,
 }
 
 struct Renderer {
@@ -250,13 +296,19 @@ struct Renderer {
     pointScale: f32,
     alphaScale: f32,
     projection: cgmath::Matrix4<f32>,
-    ulocation: UniformLocation,
-    vao: hgl::vao::Vao,
-    program: hgl::program::Program,
+    ulocationPoints: UniformLocationPoints,
+    ulocationTexture: UniformLocationTexture,
+    vaoPoints: hgl::vao::Vao,
+    vaoTexture: hgl::vao::Vao,
+    vboTexture: hgl::buffer::Vbo,
+    programPoints: hgl::program::Program,
+    programTexture: hgl::program::Program,
     textdrawer: textdrawer::TextDrawer,
     gl2d: opengl_graphics::Gl,
     showHelp: bool,
     changed: bool,
+    framebuffer: gl::types::GLuint,
+    texture: gl::types::GLuint,
 }
 
 impl Renderer {
@@ -274,37 +326,81 @@ impl Renderer {
 
         gl::Viewport(0, 0, width, height);
 
-        let vao = hgl::Vao::new();
-        vao.bind();
+        let vaoPoints = hgl::Vao::new();
+        vaoPoints.bind();
 
-        let program = hgl::Program::link([
-            hgl::Shader::compile(VERTEX_SHADER, hgl::VertexShader),
-            hgl::Shader::compile(FRAGMENT_SHADER, hgl::FragmentShader)
+        let programPoints = hgl::Program::link([
+            hgl::Shader::compile(VERTEX_SHADER_POINTS, hgl::VertexShader),
+            hgl::Shader::compile(FRAGMENT_SHADER_POINTS, hgl::FragmentShader)
         ]).unwrap();
-        let ulocation = UniformLocation{
-            width: program.uniform("width"),
-            height: program.uniform("height"),
-            pointScale: program.uniform("pointScale"),
-            transformation: program.uniform("transformation"),
-            margin: program.uniform("margin"),
-            alphaScale: program.uniform("alphaScale"),
+        let ulocationPoints = UniformLocationPoints{
+            width: programPoints.uniform("width"),
+            height: programPoints.uniform("height"),
+            pointScale: programPoints.uniform("pointScale"),
+            transformation: programPoints.uniform("transformation"),
+            margin: programPoints.uniform("margin"),
         };
-        program.bind_frag(0, "out_color");
-        program.bind();
+        programPoints.bind_frag(0, "out_color");
+        programPoints.bind();
 
         let dimx = Dimension::new(width, &table, column_x);
-        vao.enable_attrib(&program, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+        vaoPoints.enable_attrib(&programPoints, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimx.vbo.bind();
 
         let dimy = Dimension::new(height, &table, column_y);
-        vao.enable_attrib(&program, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+        vaoPoints.enable_attrib(&programPoints, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimy.vbo.bind();
 
         let dimz = Dimension::new(100, &table, column_z);
-        vao.enable_attrib(&program, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+        vaoPoints.enable_attrib(&programPoints, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimz.vbo.bind();
 
+        let vaoTexture = hgl::Vao::new();
+        vaoTexture.bind();
+
+        let programTexture = hgl::Program::link([
+            hgl::Shader::compile(VERTEX_SHADER_TEXTURE, hgl::VertexShader),
+            hgl::Shader::compile(FRAGMENT_SHADER_TEXTURE, hgl::FragmentShader)
+        ]).unwrap();
+        let ulocationTexture = UniformLocationTexture{
+            count: programTexture.uniform("count"),
+            alpha: programTexture.uniform("alpha"),
+            fboTexture: programTexture.uniform("fbo_texture"),
+        };
+        programTexture.bind_frag(0, "out_color");
+        programTexture.bind();
+
+        let vboTexture = hgl::Vbo::from_data(VERTEX_DATA_TEXTURE.as_slice(), hgl::StaticDraw);
+        vaoTexture.enable_attrib(&programTexture, "v_coord", gl::FLOAT, 2, (1 * mem::size_of::<f32>()) as i32, 0);
+        vboTexture.bind();
+
         let projection = calc_projection(&dimx, &dimy, &dimz);
+
+        let mut framebuffer = 0;
+        unsafe {
+            gl::GenFramebuffers(1, &mut framebuffer);
+        }
+        gl::BindFramebuffer(gl::FRAMEBUFFER, framebuffer);
+
+        let mut texture = 0;
+        unsafe {
+            gl::GenTextures(1, &mut texture);
+        }
+        gl::BindTexture(gl::TEXTURE_2D, texture);
+        unsafe {
+            gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA32F as i32, dimx.renderLength, dimy.renderLength, 0, gl::RGBA, gl::FLOAT, ptr::null());
+        }
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+        gl::FramebufferTexture(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, texture, 0);
+        let drawBuffers = [gl::COLOR_ATTACHMENT0];
+        unsafe {
+            gl::DrawBuffers(drawBuffers.len() as i32, mem::transmute(&drawBuffers[0]));
+        }
+        gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
 
         Renderer {
             glfw: glfw,
@@ -319,14 +415,20 @@ impl Renderer {
             pointScale: 4f32,
             alphaScale: 1f32,
             projection: projection,
-            ulocation: ulocation,
-            vao: vao,
-            program: program,
+            ulocationPoints: ulocationPoints,
+            ulocationTexture: ulocationTexture,
+            vaoPoints: vaoPoints,
+            vaoTexture: vaoTexture,
+            vboTexture: vboTexture,
+            programPoints: programPoints,
+            programTexture: programTexture,
             table: table,
             textdrawer: textdrawer::TextDrawer::new("res/DejaVuSansCondensed-Bold.ttf".to_string(), FONT_SIZE),
             gl2d: opengl_graphics::Gl::new(),
             showHelp: false,
             changed: true,
+            framebuffer: framebuffer,
+            texture: texture,
         }
     }
 
@@ -407,6 +509,12 @@ impl Renderer {
                 self.dimx.renderLength = w;
                 self.dimy.renderLength = h;
                 gl::Viewport(0, 0, self.dimx.renderLength, self.dimy.renderLength);
+
+                gl::BindTexture(gl::TEXTURE_2D, self.texture);
+                unsafe {
+                    gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA32F as i32, self.dimx.renderLength, self.dimy.renderLength, 0, gl::RGBA, gl::FLOAT, ptr::null());
+                }
+                gl::BindTexture(gl::TEXTURE_2D, 0);
             },
             glfw::CursorPosEvent(xpos, ypos) => {
                 match self.activeTransform {
@@ -487,7 +595,7 @@ impl Renderer {
                                 None => self.table.columns().iter().next().unwrap()
                             };
                             let dim = Dimension::new(self.dimx.renderLength, &self.table, next);
-                            self.vao.enable_attrib(&self.program, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            self.vaoPoints.enable_attrib(&self.programPoints, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
                             dim.vbo.bind();
                             self.dimx = dim;
                         }
@@ -500,7 +608,7 @@ impl Renderer {
                                 None => self.table.columns().rev_iter().next().unwrap()
                             };
                             let dim = Dimension::new(self.dimx.renderLength, &self.table, next);
-                            self.vao.enable_attrib(&self.program, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            self.vaoPoints.enable_attrib(&self.programPoints, "position_x", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
                             dim.vbo.bind();
                             self.dimx = dim;
                         }
@@ -513,7 +621,7 @@ impl Renderer {
                                 None => self.table.columns().iter().next().unwrap()
                             };
                             let dim = Dimension::new(self.dimy.renderLength, &self.table, next);
-                            self.vao.enable_attrib(&self.program, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            self.vaoPoints.enable_attrib(&self.programPoints, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
                             dim.vbo.bind();
                             self.dimy = dim;
                         }
@@ -526,7 +634,7 @@ impl Renderer {
                                 None => self.table.columns().rev_iter().next().unwrap()
                             };
                             let dim = Dimension::new(self.dimy.renderLength, &self.table, next);
-                            self.vao.enable_attrib(&self.program, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            self.vaoPoints.enable_attrib(&self.programPoints, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
                             dim.vbo.bind();
                             self.dimy = dim;
                         }
@@ -539,7 +647,7 @@ impl Renderer {
                                 None => self.table.columns().iter().next().unwrap()
                             };
                             let dim = Dimension::new(self.dimz.renderLength, &self.table, next);
-                            self.vao.enable_attrib(&self.program, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            self.vaoPoints.enable_attrib(&self.programPoints, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
                             dim.vbo.bind();
                             self.dimz = dim;
                         }
@@ -552,7 +660,7 @@ impl Renderer {
                                 None => self.table.columns().rev_iter().next().unwrap()
                             };
                             let dim = Dimension::new(self.dimz.renderLength, &self.table, next);
-                            self.vao.enable_attrib(&self.program, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
+                            self.vaoPoints.enable_attrib(&self.programPoints, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
                             dim.vbo.bind();
                             self.dimz = dim;
                         }
@@ -566,14 +674,17 @@ impl Renderer {
     }
 
     fn redraw(&mut self) {
-        gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+        // draw to texture
+        gl::BindFramebuffer(gl::FRAMEBUFFER, self.framebuffer);
+        gl::Viewport(0, 0, self.dimx.renderLength, self.dimy.renderLength);
+        gl::ClearColor(0.0, 0.0, 0.0, 0.0);
         gl::Clear(gl::COLOR_BUFFER_BIT);
         gl::Enable(gl::VERTEX_PROGRAM_POINT_SIZE);
         gl::Enable(gl::BLEND);
-        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl::BlendFuncSeparate(gl::SRC_ALPHA, gl::ONE, gl::ONE, gl::ONE);
 
-        self.vao.bind();
-        self.program.bind();
+        self.vaoPoints.bind();
+        self.programPoints.bind();
 
         let translation = cgmath::Matrix4::<f32>::from_translation(
             &cgmath::Vector3::<f32>::new(
@@ -590,16 +701,31 @@ impl Renderer {
         );
         let finalTransformation = translation.mul_m(&scale).mul_m(&self.projection);
         unsafe {
-            gl::UniformMatrix4fv(self.ulocation.transformation, 1, gl::FALSE, mem::transmute(&finalTransformation.as_fixed()[0][0]));
+            gl::UniformMatrix4fv(self.ulocationPoints.transformation, 1, gl::FALSE, mem::transmute(&finalTransformation.as_fixed()[0][0]));
         }
 
-        gl::Uniform1f(self.ulocation.width, self.dimx.renderLength as f32);
-        gl::Uniform1f(self.ulocation.height, self.dimy.renderLength as f32);
-        gl::Uniform1f(self.ulocation.pointScale, self.pointScale);
-        gl::Uniform1f(self.ulocation.alphaScale, self.alphaScale);
-        gl::Uniform1f(self.ulocation.margin, MARGIN);
+        gl::Uniform1f(self.ulocationPoints.width, self.dimx.renderLength as f32);
+        gl::Uniform1f(self.ulocationPoints.height, self.dimy.renderLength as f32);
+        gl::Uniform1f(self.ulocationPoints.pointScale, self.pointScale);
+        gl::Uniform1f(self.ulocationPoints.margin, MARGIN);
 
-        self.vao.draw_array(hgl::Points, 0, self.table.len() as i32);
+        self.vaoPoints.draw_array(hgl::Points, 0, self.table.len() as i32);
+
+        // render to texture to viewport
+        self.vaoTexture.bind();
+        self.programTexture.bind();
+
+        gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+        gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+        gl::Enable(gl::BLEND);
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+
+        gl::BindTexture(gl::TEXTURE_2D, self.texture);
+        gl::Uniform1i(self.ulocationTexture.fboTexture, 0);
+        gl::Uniform1f(self.ulocationTexture.count, self.table.len() as f32);
+        gl::Uniform1f(self.ulocationTexture.alpha, self.alphaScale);
+        self.vaoTexture.draw_array(hgl::Triangles, 0, VERTEX_DATA_TEXTURE.len() as i32 / 2);
 
         gl::BindVertexArray(0);
         gl::UseProgram(0);
@@ -634,6 +760,17 @@ impl Renderer {
             } else {
                 io::timer::sleep(time::duration::Duration::milliseconds(PAUSE_MS));
             }
+        }
+    }
+}
+
+#[unsafe_destructor]
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        self.window.make_current();
+        unsafe {
+            gl::DeleteTextures(1, &self.texture);
+            gl::DeleteFramebuffers(1, &self.framebuffer);
         }
     }
 }
