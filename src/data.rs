@@ -27,10 +27,10 @@ impl Table {
         }
     }
 
-    pub fn push(&mut self, row: Vec<f32>) {
+    pub fn push(&mut self, row: &Vec<f32>) {
         assert!(row.len() == self.colnames.len());
-        for (name, data) in self.colnames.iter().zip(row.move_iter()) {
-            self.columns.find_mut(name).unwrap().data.push(data)
+        for (name, data) in self.colnames.iter().zip(row.iter()) {
+            self.columns.find_mut(name).unwrap().data.push(data.clone())
         }
     }
 

@@ -65,14 +65,18 @@ fn main() {
     }
 
     let mut n: uint = 0;
+    let mut rowVec: Vec<f32> = Vec::new();
+    rowVec.grow(positions.len(), &0f32);
     for row in reader.decode_iter::<Vec<Option<f32>>>() {
-        let row2: Vec<f32> = FromIterator::from_iter(range(0, row.len()).map(|x| {
-            match row[positions.find(&x).unwrap().clone()] {
+        assert!(row.len() == rowVec.len());
+        for x in range(0, row.len()) {
+            let value = row[positions.find(&x).unwrap().clone()];
+            *rowVec.get_mut(x) = match value {
                 Some(value) => value,
                 None => Float::nan()
-            }
-        }));
-        table.push(row2);
+            };
+        }
+        table.push(&rowVec);
 
         if n % 100 == 0 {
             print!("\rParsed {} lines", n);
