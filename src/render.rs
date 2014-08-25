@@ -100,8 +100,8 @@ void main(void) {
         discard;
     } else {
         vec4 full = tex / tex.a;
-        float transp = log(1.0 + tex.a / count) / log(2.0);
-        out_color = vec4(full.r, full.g, full.b, alpha + (1.0 - alpha) * transp);
+        float transp = log(1.0 + pow(tex.a / count, 1.0 / alpha - 1.0)) / log(2.0);
+        out_color = vec4(full.r, full.g, full.b, transp);
     }
 }";
 
@@ -578,8 +578,8 @@ impl Renderer {
                     (glfw::KeyEscape, glfw::Press) => self.window.set_should_close(true),
                     (glfw::KeyW, glfw::Press) => self.pointScale *= 1.5f32,
                     (glfw::KeyQ, glfw::Press) => self.pointScale = 1f32.max(self.pointScale / 1.5f32),
-                    (glfw::KeyA, glfw::Press) => self.alphaScale /= 1.5f32,
-                    (glfw::KeyS, glfw::Press) => self.alphaScale = 1f32.min(self.alphaScale * 1.5f32),
+                    (glfw::KeyA, glfw::Press) => self.alphaScale = 0f32.max(self.alphaScale - 0.02f32),
+                    (glfw::KeyS, glfw::Press) => self.alphaScale = 1f32.min(self.alphaScale + 0.02f32),
                     (glfw::KeyH, glfw::Press) => self.showHelp = !self.showHelp,
                     (glfw::KeyR, glfw::Press) => {
                         self.pointScale = 4f32;
