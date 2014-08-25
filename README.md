@@ -28,7 +28,7 @@ Because I want to learn a new language, which tries to solve many outstanding pr
 Because it's fast and interactive. Did you ever tried to plot 100k data elements using these tools?
 
 ### Is float/f32 precise enough?
-When you scan through the source code you'll recognize that I use 32-bit floating points as internal format. I never reached a case where this resulted into problems. But the true reason for this is that 64bit data isn't supported by core OpenGl < 4.0. And the extension isn't implemented by Mesa yet. Feel free to recheck the status [here](http://cgit.freedesktop.org/mesa/mesa/tree/docs/GL3.txt) under GL 4.0 - `GL_ARB_gpu_shader_fp64`. I could convert all data arrays before uploading it to the GPU, but this makes the system inflexible for future expansions.
+When you scan through the source code you'll recognize that I use 32-bit floating points as internal format. I never reached a case where this resulted into problems. But the true reason for this is that 64bit data isn't supported by core OpenGl < 4.1. And the extension isn't implemented by Mesa yet. Feel free to recheck the status [here](http://cgit.freedesktop.org/mesa/mesa/tree/docs/GL3.txt) under `GL 4.0 - GL_ARB_gpu_shader_fp64` and `GL 4.1 - GL_ARB_vertex_attrib_64bit`. I could convert all data arrays before uploading it to the GPU, but this makes the system inflexible for future expansions.
 
 ### Where is the documentation?
 Start the executable using `--help` to get the command line help and press H during the rendering to get the key mapping. There is no source code documentation now because I don't have enough resources, sorry.
