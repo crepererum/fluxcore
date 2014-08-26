@@ -28,9 +28,9 @@ impl Table {
     }
 
     pub fn push(&mut self, row: &Vec<f32>) {
-        assert!(row.len() == self.colnames.len());
-        for (name, data) in self.colnames.iter().zip(row.iter()) {
-            self.columns.find_mut(name).unwrap().data.push(data.clone())
+        assert!(row.len() == self.columns.len());
+        for ((_name, col), data) in self.columns.mut_iter().zip(row.iter()) {
+            col.data.push(data.clone())
         }
     }
 
