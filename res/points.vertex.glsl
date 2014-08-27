@@ -19,7 +19,7 @@ vec3 hsv2rgb(vec3 c) {
 void main() {
     vec4 realpos = transformation * vec4(position_x, position_y, position_z, 1.0);
     float t = 1.0 / (1.0 + exp(-realpos.z * 3.0)); // use sigma function to limit z to (0,1)
-    Color = vec4(hsv2rgb(vec3(0.5 * t, 1.0, 1.0)), 1.0);
+    Color = vec4(hsv2rgb(vec3(0.5 - 0.5 * t, 1.0, 1.0)), 1.0);
 
     vec4 realpos2 = transformation * vec4(position_x, position_y, 0.0, 1.0);
     gl_Position = vec4(realpos2.x, realpos2.y, 0.0, 1.0);
