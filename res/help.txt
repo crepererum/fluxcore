@@ -1,0 +1,13 @@
+== HELP ==
+H: Toggle help
+R: Reset view
+Q/W: Decrease/Increase point size
+A/S: Decrease/Increase alpha
+Up/Down: Change Y dimension
+Left/Right: Change X dimension
+PageUp/PageDown: Change Z dimension
+Mouse 1 + Drag: Move X+Y
+Mouse 2 + Drag: Scale X+Y
+Mouse Scroll Hor.: Scale Z
+Mouse Scroll Ver.: Move Z
+
