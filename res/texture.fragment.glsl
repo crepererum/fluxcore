@@ -13,7 +13,8 @@ void main(void) {
     } else {
         vec4 full = tex / tex.a;
         float transp = log(1.0 + pow(tex.a / count, 1.0 / alpha - 1.0)) / log(2.0);
-        out_color = vec4(full.r, full.g, full.b, transp);
+        float delta = 1.0 - max(full.r, max(full.g, full.b));
+        out_color = vec4(full.r + delta, full.g + delta, full.b + delta, transp);
     }
 }
 
