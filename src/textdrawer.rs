@@ -32,9 +32,9 @@ pub struct TextDrawer {
 }
 
 impl TextDrawer {
-    pub fn new(fontfile: String, size: u32) -> TextDrawer {
+    pub fn new(fontdata: &[u8], size: u32) -> TextDrawer {
         let freetype = freetype::Library::init().unwrap();
-        let fontface = freetype.new_face(fontfile.as_slice(), 0).unwrap();
+        let fontface = freetype.new_memory_face(fontdata, 0).unwrap();
         fontface.set_pixel_sizes(0, size).unwrap();
 
         TextDrawer {

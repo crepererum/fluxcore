@@ -17,6 +17,8 @@ use std::ptr;
 use std::time;
 use textdrawer;
 
+static FONT_DATA: &'static [u8] = include_bin!("../res/DejaVuSansCondensed-Bold.ttf");
+
 static VERTEX_SHADER_POINTS: &'static str = "
 #version 140
 
@@ -423,7 +425,7 @@ impl Renderer {
             programPoints: programPoints,
             programTexture: programTexture,
             table: table,
-            textdrawer: textdrawer::TextDrawer::new("res/DejaVuSansCondensed-Bold.ttf".to_string(), FONT_SIZE),
+            textdrawer: textdrawer::TextDrawer::new(FONT_DATA, FONT_SIZE),
             gl2d: opengl_graphics::Gl::new(),
             showHelp: false,
             changed: true,
