@@ -18,10 +18,13 @@ use std::time;
 use textdrawer;
 
 static FONT_DATA: &'static [u8] = include_bin!("../res/DejaVuSansCondensed-Bold.ttf");
+static LIB_SHADER_GRADIENT: &'static str = include_str!("../res/gradient.lib.glsl");
 static VERTEX_SHADER_POINTS: &'static str = include_str!("../res/points.vertex.glsl");
 static FRAGMENT_SHADER_POINTS: &'static str = include_str!("../res/points.fragment.glsl");
 static VERTEX_SHADER_TEXTURE: &'static str = include_str!("../res/texture.vertex.glsl");
 static FRAGMENT_SHADER_TEXTURE: &'static str = include_str!("../res/texture.fragment.glsl");
+static VERTEX_SHADER_LEGEND: &'static str = include_str!("../res/legend.vertex.glsl");
+static FRAGMENT_SHADER_LEGEND: &'static str = include_str!("../res/legend.fragment.glsl");
 static HELP_TEXT: &'static str = include_str!("../res/help.txt");
 
 static VERTEX_DATA_TEXTURE: [gl::types::GLfloat, ..12] = [
@@ -33,10 +36,10 @@ static VERTEX_DATA_TEXTURE: [gl::types::GLfloat, ..12] = [
     1.0, 1.0,
 ];
 
-static MARGIN: f32 = 100f32;
+static MARGIN: f32 = 130f32;
 static TICK_DISTANCE: i32 = 60i32;
 static FONT_SIZE: u32 = 16u32;
-static LABEL_MARGIN: f64 = 24f64;
+static LABEL_MARGIN: f64 = 50f64;
 static INFO_MARGIN: f64 = 2f64;
 static TICK_LENGTH: f64 = 6f64;
 static TICK_WIDTH: f64 = 0.5f64;
@@ -165,11 +168,17 @@ fn calc_projection(dimx: &Dimension, dimy: &Dimension, dimz: &Dimension) -> cgma
         (dimz.min, dimz.max)
     };
 
-    cgmath::ortho(
+    let mut result = cgmath::ortho(
         xmin, xmax,
         ymin, ymax,
         zmin, zmax
-    )
+    );
+
+    // fix z projection
+    result.as_mut_fixed()[2][3] = 0f32;
+    result.as_mut_fixed()[3][2] *= -1f32;
+
+    result
 }
 
 struct UniformLocationPoints {
@@ -186,6 +195,12 @@ struct UniformLocationTexture {
     fboTexture: gl::types::GLint,
 }
 
+struct UniformLocationLegend {
+    width: gl::types::GLint,
+    height: gl::types::GLint,
+    margin: gl::types::GLint,
+}
+
 struct Renderer {
     table: data::Table,
     glfw: glfw::Glfw,
@@ -194,6 +209,8 @@ struct Renderer {
     dimx: Dimension,
     dimy: Dimension,
     dimz: Dimension,
+    dimzDelta: f32,
+    dimzScale: f32,
     activeTransform: ActiveTransform,
     mouseX: f32,
     mouseY: f32,
@@ -202,11 +219,13 @@ struct Renderer {
     projection: cgmath::Matrix4<f32>,
     ulocationPoints: UniformLocationPoints,
     ulocationTexture: UniformLocationTexture,
+    ulocationLegend: UniformLocationLegend,
     vaoPoints: hgl::vao::Vao,
     vaoTexture: hgl::vao::Vao,
     vboTexture: hgl::buffer::Vbo,
     programPoints: hgl::program::Program,
     programTexture: hgl::program::Program,
+    programLegend: hgl::program::Program,
     textdrawer: textdrawer::TextDrawer,
     gl2d: opengl_graphics::Gl,
     showHelp: bool,
@@ -235,6 +254,7 @@ impl Renderer {
 
         let programPoints = hgl::Program::link([
             hgl::Shader::compile(VERTEX_SHADER_POINTS, hgl::VertexShader),
+            hgl::Shader::compile(LIB_SHADER_GRADIENT, hgl::VertexShader),
             hgl::Shader::compile(FRAGMENT_SHADER_POINTS, hgl::FragmentShader)
         ]).unwrap();
         let ulocationPoints = UniformLocationPoints{
@@ -255,7 +275,7 @@ impl Renderer {
         vaoPoints.enable_attrib(&programPoints, "position_y", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimy.vbo.bind();
 
-        let dimz = Dimension::new(100, &table, column_z);
+        let mut dimz = Dimension::new(width, &table, column_z);
         vaoPoints.enable_attrib(&programPoints, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
         dimz.vbo.bind();
 
@@ -276,6 +296,22 @@ impl Renderer {
 
         let vboTexture = hgl::Vbo::from_data(VERTEX_DATA_TEXTURE.as_slice(), hgl::StaticDraw);
         vaoTexture.enable_attrib(&programTexture, "v_coord", gl::FLOAT, 2, (1 * mem::size_of::<f32>()) as i32, 0);
+        vboTexture.bind();
+
+        let programLegend = hgl::Program::link([
+            hgl::Shader::compile(VERTEX_SHADER_LEGEND, hgl::VertexShader),
+            hgl::Shader::compile(FRAGMENT_SHADER_LEGEND, hgl::FragmentShader),
+            hgl::Shader::compile(LIB_SHADER_GRADIENT, hgl::FragmentShader)
+        ]).unwrap();
+        let ulocationLegend = UniformLocationLegend{
+            width: programLegend.uniform("width"),
+            height: programLegend.uniform("height"),
+            margin: programLegend.uniform("margin"),
+        };
+        programLegend.bind_frag(0, "out_color");
+        programLegend.bind();
+
+        vaoTexture.enable_attrib(&programLegend, "v_coord", gl::FLOAT, 2, (1 * mem::size_of::<f32>()) as i32, 0);
         vboTexture.bind();
 
         let projection = calc_projection(&dimx, &dimy, &dimz);
@@ -313,6 +349,8 @@ impl Renderer {
             dimx: dimx,
             dimy: dimy,
             dimz: dimz,
+            dimzDelta: 0f32,
+            dimzScale: 1f32,
             activeTransform: TransformNone,
             mouseX: 0f32,
             mouseY: 0f32,
@@ -321,11 +359,13 @@ impl Renderer {
             projection: projection,
             ulocationPoints: ulocationPoints,
             ulocationTexture: ulocationTexture,
+            ulocationLegend: ulocationLegend,
             vaoPoints: vaoPoints,
             vaoTexture: vaoTexture,
             vboTexture: vboTexture,
             programPoints: programPoints,
             programTexture: programTexture,
+            programLegend: programLegend,
             table: table,
             textdrawer: textdrawer::TextDrawer::new(FONT_DATA, FONT_SIZE),
             gl2d: opengl_graphics::Gl::new(),
@@ -407,11 +447,35 @@ impl Renderer {
         }
     }
 
+    fn draw_z_axis(&mut self, c: &graphics::Context<(),[f32, ..4]>) {
+        let line = c.line(MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64 / 5f64, self.dimz.renderLength as f64 - MARGIN as f64, self.dimy.renderLength as f64 - MARGIN as f64 / 5f64)
+            .round_border_radius(1.0);
+
+
+        line.draw(&mut self.gl2d);
+
+        self.textdrawer.render(&c.trans(INFO_MARGIN, self.dimy.renderLength as f64 - INFO_MARGIN), &mut self.gl2d, &format!("z: {}", self.dimz.name), textdrawer::Left, textdrawer::Bottom);
+
+        let (nfrac, mmin, mmax, marksers) = self.dimz.calc_axis_markers(TICK_DISTANCE);
+        for m in marksers.iter() {
+            let pos = (MARGIN + (m - mmin) / (mmax - mmin) * (self.dimz.renderLength as f32 - 2f32 * MARGIN)).floor();
+            let marker_text = f32::to_str_digits(m.clone(), nfrac as uint + 1);
+            let marker_c = c.trans(pos as f64, self.dimy.renderLength as f64 - MARGIN as f64 / 5f64 - 10f64);
+
+            self.textdrawer.render(&marker_c, &mut self.gl2d, &marker_text, textdrawer::Center, textdrawer::Bottom);
+
+            c.line(pos as f64, self.dimy.renderLength as f64 - MARGIN as f64 / 5f64 - TICK_LENGTH, pos as f64, self.dimy.renderLength as f64 - MARGIN as f64 / 5f64)
+                .round_border_radius(TICK_WIDTH)
+                .draw(&mut self.gl2d);
+        }
+    }
+
     fn handle_event(&mut self, event: glfw::WindowEvent) {
         match event {
             glfw::SizeEvent(w, h) => {
                 self.dimx.renderLength = w;
                 self.dimy.renderLength = h;
+                self.dimz.renderLength = w;
                 gl::Viewport(0, 0, self.dimx.renderLength, self.dimy.renderLength);
 
                 gl::BindTexture(gl::TEXTURE_2D, self.texture);
@@ -467,14 +531,30 @@ impl Renderer {
             },
             glfw::ScrollEvent(dx, dy) => {
                 if dx > 0.0 {
-                    self.dimz.d += 0.05;
+                    self.dimz.d -= 0.05 * (self.dimz.max - self.dimz.min) * self.dimz.s;
+                    self.dimzDelta += 0.05 * (self.dimz.max - self.dimz.min) * self.dimzScale;
                 } else if dx < 0.0 {
-                    self.dimz.d -= 0.05;
+                    self.dimz.d += 0.05 * (self.dimz.max - self.dimz.min) * self.dimz.s;
+                    self.dimzDelta -= 0.05 * (self.dimz.max - self.dimz.min) * self.dimzScale;
                 }
                 if dy > 0.0 {
+                    self.dimz.d = self.dimz.d / self.dimz.s;
+                    self.dimzDelta = self.dimzDelta / self.dimzScale;
+
                     self.dimz.s *= 1.05;
+                    self.dimzScale *= 1.05;
+
+                    self.dimz.d = self.dimz.d * self.dimz.s;
+                    self.dimzDelta = self.dimzDelta * self.dimzScale;
                 } else if dy < 0.0 {
+                    self.dimz.d = self.dimz.d / self.dimz.s;
+                    self.dimzDelta = self.dimzDelta / self.dimzScale;
+
                     self.dimz.s /= 1.05;
+                    self.dimzScale /= 1.05;
+
+                    self.dimz.d = self.dimz.d * self.dimz.s;
+                    self.dimzDelta = self.dimzDelta * self.dimzScale;
                 }
             }
             glfw::KeyEvent(key, _scancode, action, _mods) => {
@@ -491,6 +571,8 @@ impl Renderer {
                         self.dimx.reset();
                         self.dimy.reset();
                         self.dimz.reset();
+                        self.dimzDelta = 0f32;
+                        self.dimzScale = 1f32;
                     },
                     (glfw::KeyRight, glfw::Press) => {
                         {
@@ -554,6 +636,8 @@ impl Renderer {
                             self.vaoPoints.enable_attrib(&self.programPoints, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
                             dim.vbo.bind();
                             self.dimz = dim;
+                            self.dimzDelta = 0f32;
+                            self.dimzScale = 1f32;
                         }
                         self.projection = calc_projection(&self.dimx, &self.dimy, &self.dimz);
                     },
@@ -567,6 +651,8 @@ impl Renderer {
                             self.vaoPoints.enable_attrib(&self.programPoints, "position_z", gl::FLOAT, 1, (1 * mem::size_of::<f32>()) as i32, 0);
                             dim.vbo.bind();
                             self.dimz = dim;
+                            self.dimzDelta = 0f32;
+                            self.dimzScale = 1f32;
                         }
                         self.projection = calc_projection(&self.dimx, &self.dimy, &self.dimz);
                     },
@@ -594,13 +680,13 @@ impl Renderer {
             &cgmath::Vector3::<f32>::new(
                 self.dimx.d / (self.dimx.max - self.dimx.min) * 2.0,
                 self.dimy.d / (self.dimy.max - self.dimy.min) * 2.0,
-                self.dimz.d / (self.dimz.max - self.dimz.min) * 2.0
+                self.dimzDelta / (self.dimz.max - self.dimz.min) * 2.0
             )
         );
         let scale = cgmath::Matrix4::<f32>::new(
             self.dimx.s, 0.0f32, 0.0f32, 0.0f32,
             0.0f32, self.dimy.s, 0.0f32, 0.0f32,
-            0.0f32, 0.0f32, self.dimz.s, 0.0f32,
+            0.0f32, 0.0f32, self.dimzScale, 0.0f32,
             0.0f32, 0.0f32, 0.0f32, 1.0f32
         );
         let finalTransformation = translation.mul_m(&scale).mul_m(&self.projection);
@@ -631,6 +717,13 @@ impl Renderer {
         gl::Uniform1f(self.ulocationTexture.alpha, self.alphaScale);
         self.vaoTexture.draw_array(hgl::Triangles, 0, VERTEX_DATA_TEXTURE.len() as i32 / 2);
 
+        // draw legend (reuse vaoTexture)
+        self.programLegend.bind();
+        gl::Uniform1f(self.ulocationLegend.width, self.dimx.renderLength as f32);
+        gl::Uniform1f(self.ulocationLegend.height, self.dimy.renderLength as f32);
+        gl::Uniform1f(self.ulocationLegend.margin, MARGIN as f32);
+        self.vaoTexture.draw_array(hgl::Triangles, 0, VERTEX_DATA_TEXTURE.len() as i32 / 2);
+
         gl::BindVertexArray(0);
         gl::UseProgram(0);
         self.gl2d.clear_shader();
@@ -643,9 +736,9 @@ impl Renderer {
         }
         self.draw_x_axis(&c);
         self.draw_y_axis(&c);
+        self.draw_z_axis(&c);
 
-        self.textdrawer.render(&c.trans(self.dimx.renderLength as f64 - INFO_MARGIN, self.dimy.renderLength as f64 - INFO_MARGIN), &mut self.gl2d, &format!("#objects: {}", self.table.len()), textdrawer::Right, textdrawer::Bottom);
-        self.textdrawer.render(&c.trans(INFO_MARGIN, self.dimy.renderLength as f64 - INFO_MARGIN), &mut self.gl2d, &format!("z: {}", self.dimz.name), textdrawer::Left, textdrawer::Bottom);
+        self.textdrawer.render(&c.trans(self.dimx.renderLength as f64 - INFO_MARGIN, INFO_MARGIN), &mut self.gl2d, &format!("#objects: {}", self.table.len()), textdrawer::Right, textdrawer::Top);
 
         self.window.swap_buffers();
     }
