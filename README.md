@@ -1,3 +1,5 @@
+**!ABANDONED! This project won't be continued, see [fluxcore_ng](https://github.com/crepererum/fluxcore_ng) for a new try. !ABANDONED!**
+
 # fluxcore
 This is a high performance CSV renderer. It supports float and integer values and provides a scatter plot including a color dimension and configurable dot sizes, alpha scaling and fast dimension switching.
 
